@@ -1,0 +1,17 @@
+Request:
+{
+    "id": string,
+    "ts": datetime,
+    "data": file,
+    "params": dict
+}
+
+Response:
+{
+    "id": string,
+    "ts": datetime,
+    "responseCode": string,
+    "statusCode": int,
+    "data": dict | Error,
+    "params": dict
+}

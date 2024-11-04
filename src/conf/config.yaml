@@ -1,0 +1,4 @@
+uvicorn_server:
+  port: 8000
+  log_level: "info"
+  app: "routes:app"
