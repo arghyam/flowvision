@@ -2,8 +2,8 @@ import logging
 from http import HTTPStatus
 import traceback
 from datetime import datetime
-from fastapi import HTTPException
 
+from error.error import CustomHTTPException
 from validation.validators import ImageValidator
 from service.llm_services.openai_llm_service import OpenAILLMService
 from models.api_models import RequestForm, Response, Error, DataField
@@ -47,11 +47,11 @@ class APIService:
                 params=None
             )
 
-        except HTTPException as e:
+        except CustomHTTPException as e:
             status_code = e.status_code
-            response_code = e.detail['phrase']
-            error_message = e.detail['phrase']
-            error_details = e.detail['details']
+            response_code = e.phrase
+            error_message = e.phrase
+            error_details = e.detail
             logging.error("\nError type: %s\nTrace: %s", error_message, traceback.format_exc())
 
             data = Error(

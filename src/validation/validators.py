@@ -1,4 +1,4 @@
-from fastapi import HTTPException
+from error.error import CustomHTTPException
 from http import HTTPStatus
 import filetype
 
@@ -22,22 +22,16 @@ class ImageValidator:
             self._validate_image_size(image_size=len(image_bytes))
 
         if len(image_bytes) == 0:
-            raise HTTPException(
+            raise CustomHTTPException(
                 status_code=HTTPStatus.BAD_REQUEST.value,
-                detail={
-                    "phrase": HTTPStatus.BAD_REQUEST.phrase,
-                    "details": "A valid jpg or png image must be provided."
-                }
+                detail="A valid jpg or png image must be provided."
             )
 
         file_info = filetype.guess(image_bytes)
         if not file_info:
-            raise HTTPException(
+            raise CustomHTTPException(
                 status_code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE.value,
-                detail={
-                    "phrase": HTTPStatus.UNSUPPORTED_MEDIA_TYPE.phrase,
-                    "details": "Unable to determine file type."
-                },
+                detail="Unable to determine file type.",
             )
 
         detected_content_type = file_info.extension.lower()
@@ -46,20 +40,14 @@ class ImageValidator:
 
     def _validate_image_type(self, content_type: str):
         if (content_type not in self.accepted_file_types):
-            raise HTTPException(
+            raise CustomHTTPException(
                 status_code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE.value,
-                detail={
-                    "phrase": HTTPStatus.UNSUPPORTED_MEDIA_TYPE.phrase,
-                    "details": "Unsupported file type. Expected jpg or png image."
-                },
+                detail="Unsupported file type. Expected jpg or png image.",
             )
 
     def _validate_image_size(self, image_size: int):
         if image_size > self.file_size_limit:
-            raise HTTPException(
+            raise CustomHTTPException(
                 status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE.value,
-                detail={
-                    "phrase": HTTPStatus.REQUEST_ENTITY_TOO_LARGE.phrase,
-                    "details": f"Image File is too large. File must be less than {self.file_size_limit} bytes."
-                }
+                detail=f"Image File is too large. File must be less than {self.file_size_limit} bytes.",
             )
