@@ -1,4 +1,7 @@
-uvicorn_server:
+log_level: "info"
+file_size_limit: 10485760
+presigned_url_expiration: 3600
+
+app_server:
   port: 8000
-  log_level: "info"
   app: "routes:app"

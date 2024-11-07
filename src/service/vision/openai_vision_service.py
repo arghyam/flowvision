@@ -1,11 +1,11 @@
 from openai import OpenAI
 import base64
 
-from service.llm_services.base_llm_service import BaseLLMService
+from service.vision.base_vision_service import BaseVisionService
 from conf.config import Config
 
 
-class OpenAILLMService(BaseLLMService):
+class OpenAIVisionService(BaseVisionService):
     def __init__(self):
         config = Config()
         self.openai_client = OpenAI(api_key=config.openai_api_key())

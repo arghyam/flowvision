@@ -4,3 +4,4 @@ filetype==1.2.0
 llama-index-llms-openai==0.2.16
 python-dotenv==1.0.1
 python-multipart==0.0.17
+boto3==1.35.54

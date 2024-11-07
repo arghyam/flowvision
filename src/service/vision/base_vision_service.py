@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 
-class BaseLLMService(ABC):
+class BaseVisionService(ABC):
     @abstractmethod
     def read():
         pass

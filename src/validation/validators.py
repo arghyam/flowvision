@@ -2,22 +2,22 @@ from error.error import CustomHTTPException
 from http import HTTPStatus
 import filetype
 
-from models.api_models import RequestForm
+from models.models import Request
 
 
 class ImageValidator:
     file_size_limit = 20971520  # 20MB so effectively no limit for now
     accepted_file_types = ['image/jpeg', 'image/jpg', 'image/png', 'jpeg', 'jpg', 'png']
 
-    async def validate(self, request: RequestForm):
-        image_content_type = request.data.content_type
-        image_size = request.data.size
+    async def validate(self, request: Request):
+        image_content_type = request.image.content_type
+        image_size = request.image.size
         image_bytes = bytes()
 
         self._validate_image_type(content_type=image_content_type)
         self._validate_image_size(image_size=image_size)
 
-        while content := await request.data.read(1024):
+        while content := await request.image.read(1024):
             image_bytes = image_bytes + content
             self._validate_image_size(image_size=len(image_bytes))
 

@@ -19,14 +19,14 @@ class Config:
     def openai_api_key(self):
         return self.__openai_api_key
 
-    def find(self, path):
+    def find(self, path, default=None):
         try:
             if self.config:
                 element_value = reduce(operator.getitem, path.split("."), self.config)
             else:
                 raise KeyError
         except KeyError:
-            element_value = None
+            # element_value = None
             logging.warning(f"Path '{path}' not found in config file.")
         finally:
-            return element_value
+            return element_value or default

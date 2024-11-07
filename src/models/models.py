@@ -13,13 +13,12 @@ class Error(BaseModel):
     errorMessage: str
     errorDetails: Optional[str] = None
 
-
-class RequestForm(BaseModel):
+class Request(BaseModel):
     id: str
     ts: datetime
-    data: UploadFile
-    params: Optional[str] = None
-    model_config = {"extra": "forbid"}
+    image: UploadFile
+    metadata: Optional[dict] = None
+    jal_mitra_id: Optional[str] = None
 
 
 class Response(BaseModel):
