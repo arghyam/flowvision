@@ -1,30 +1,56 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
 from fastapi import UploadFile
+from enum import StrEnum
+from uuid import UUID
 
 
-class DataField(BaseModel):
-    data: str
+class ImageUploadRequest(BaseModel):
+    id: UUID | None = None
+    ts: datetime
+    image: UploadFile
+    metadata: dict | None = None
+
+
+class ReadingExtractionRequest(BaseModel):
+    id: UUID | None = None
+    ts: str
+    imageURL: str
+    metadata: dict | None = None
 
 
 class Error(BaseModel):
     errorCode: int
-    errorMessage: str
-    errorDetails: Optional[str] = None
-
-class Request(BaseModel):
-    id: str
-    ts: datetime
-    image: UploadFile
-    metadata: Optional[dict] = None
-    jal_mitra_id: Optional[str] = None
+    errorMsg: str
 
 
-class Response(BaseModel):
-    id: str
+class Status(StrEnum):
+    NOMETER = 'nometer'
+    UNCLEAR = 'unclear'
+    SUCCESS = 'success'
+
+
+class ImageUploadResult(BaseModel):
+    imageURL: str
+
+
+class ReadingExtractionResult(BaseModel):
+    status: Status
+    meterReading: float | str | None = None
+    meterBrand: str | None = None
+
+
+class BaseResponse(BaseModel):
+    id: UUID
     ts: datetime
     responseCode: str
     statusCode: int
-    data: DataField | Error
-    params: Optional[str] = None
+    error: Error | None = None
+
+
+class ImageUploadResponse(BaseResponse):
+    result: ImageUploadResult | None = None
+
+
+class ReadingExtractionResponse(BaseResponse):
+    result: ReadingExtractionResult | None = None

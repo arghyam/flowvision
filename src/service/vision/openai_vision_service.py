@@ -27,6 +27,7 @@ class OpenAIVisionService(BaseVisionService):
         """
         return context
 
+    # Will need to change to just use url
     def read(self, image_bytes):
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         messages = []

@@ -1,14 +1,13 @@
 from fastapi import FastAPI, Form
 from typing_extensions import Annotated
 
-# from api_services.api_service import APIService
 from service.api import ImageService
 from conf.config import Config
-from models.models import Request
+from models.models import ImageUploadRequest, ReadingExtractionRequest
 
 app = FastAPI()
-flow_vision_service = ImageService()
 config = Config()
+flow_vision_service = ImageService(config=config)
 basepath = "/api/v1/flowvision"
 
 
@@ -18,8 +17,13 @@ async def root():
 
 
 @app.post(f"{basepath}/uploadImage")
-async def read_meter(request: Annotated[Request, Form()]):
-    return await flow_vision_service.read_meter(request)
+async def upload_image(request: Annotated[ImageUploadRequest, Form()]):
+    return await flow_vision_service.upload_image(request)
+
+
+@app.post(f"{basepath}/extractReading")
+async def extract_reading(request: ReadingExtractionRequest):
+    return await flow_vision_service.extract_reading(request)
 
 
 if __name__ == "__main__":
