@@ -7,5 +7,9 @@ Steps to run api:
 4. Run `pip install -r requirements.txt` to install dependencies.
 5. Go to src directory using `cd src`.
 6. Run `python3 routes.py` to start uvicorn server.
-7. Use a tool like Postman to send api POST requests to this endpoint http://127.0.0.1:8000/ai-tools/v1/read_meter.
-(Note that post requests must be sent as form data.)
+7. Use a tool like Postman to send api POST requests to the following endpoints:
+    1. http://127.0.0.1:8000/api/v1/flowvision/uploadImage
+    2. http://127.0.0.1:8000/api/v1/flowvision/extractReading
+    3. Check \<your-root-dir\>/req-resp-structure.txt for details.
+
+(Note that uploadImage requests must be sent as form data.)

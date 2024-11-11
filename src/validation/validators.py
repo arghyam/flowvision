@@ -1,4 +1,4 @@
-from error.error import CustomHTTPException
+from error.error import CustomHTTPException, ErrorCode
 from http import HTTPStatus
 import filetype
 
@@ -29,6 +29,7 @@ class ImageValidator:
         if len(image_bytes) == 0:
             raise CustomHTTPException(
                 status_code=HTTPStatus.BAD_REQUEST.value,
+                error_code=ErrorCode.INVALID_FILE_ERROR.value,
                 detail="A valid jpg or png image must be provided."
             )
 
@@ -36,6 +37,7 @@ class ImageValidator:
         if not file_info:
             raise CustomHTTPException(
                 status_code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE.value,
+                error_code=ErrorCode.UNSUPPORTED_FILE_TYPE_ERROR.value,
                 detail="Unable to determine file type.",
             )
 
@@ -48,6 +50,7 @@ class ImageValidator:
         if (content_type not in self.accepted_file_types):
             raise CustomHTTPException(
                 status_code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE.value,
+                error_code=ErrorCode.UNSUPPORTED_FILE_TYPE_ERROR.value,
                 detail="Unsupported file type. Expected jpg or png image.",
             )
 
@@ -55,5 +58,6 @@ class ImageValidator:
         if image_size > self.file_size_limit:
             raise CustomHTTPException(
                 status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE.value,
+                error_code=ErrorCode.FILE_SIZE_ERROR.value,
                 detail=f"Image File is too large. File must be less than {self.file_size_limit} bytes.",
             )

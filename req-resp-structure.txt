@@ -1,12 +1,12 @@
 /api/v1/flowvision/uploadImage
 {
-  "id": string,
+  "id": uuid,
   "ts": datetime,
   "image": file
 }
 
 {
-  "id": string,
+  "id": uuid,
   "ts": datetime,
   "responseCode": string,
   "statusCode": int,
@@ -21,14 +21,14 @@
 
 POST /api/v1/flowvision/extractReading
 {
-  "id": string,
+  "id": uuid,
   "ts": datetime,
   "imageURL": string,
   "metadata": optional[dict]
 }
 
 {
-  "id": string,
+  "id": uuid,
   "ts": datetime,
   "responseCode": string,
   "statusCode": int,

@@ -20,7 +20,7 @@ class ReadingExtractionRequest(BaseModel):
 
 
 class Error(BaseModel):
-    errorCode: int
+    errorCode: str | int
     errorMsg: str
 
 

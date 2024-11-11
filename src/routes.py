@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Form
 from typing_extensions import Annotated
 
-from service.api import ImageService
+from service.api.image_service import ImageService
 from conf.config import Config
 from models.models import ImageUploadRequest, ReadingExtractionRequest
 

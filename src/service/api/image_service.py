@@ -17,7 +17,7 @@ from conf.config import Config
 
 class ImageService:
     def __init__(self, config: Config):
-        self.llm_service = OpenAIVisionService()
+        self.vision_service = OpenAIVisionService()
         self.image_validator = ImageValidator(config)
         self.presigned_url_expiration = config.find("presigned_url_expiration")
         self.bucket_name = config.find("s3.bucket_name")
@@ -40,7 +40,7 @@ class ImageService:
         if http_response.status_code != HTTPStatus.OK.value:
             raise CustomHTTPException(
                 status_code=http_response.status_code,
-                detail=f"Error uploading image to presigned URL: {http_response.content}"
+                detail=f"Error uploading image to presigned URL: {http_response.reason}"
             )
 
     async def _get_from_storage(self, url):
@@ -96,7 +96,7 @@ class ImageService:
 
         try:
             image_bytes = await self._get_from_storage(request.imageURL)
-            meter_reading = self.llm_service.read(image_bytes=image_bytes)
+            meter_reading = self.vision_service.read(image_bytes=image_bytes)
 
             if 'nometer' in meter_reading.lower():
                 meter_reading_status = Status.NOMETER
@@ -164,10 +164,11 @@ class ImageService:
     def handle_custom_http_exception(self, error: CustomHTTPException, id: UUID | None = None):
         status_code = error.status_code
         response_code = error.phrase
+        error_code = error.error_code
         error_message = error.detail
         logging.error("\nError type: %s\nTrace: %s", error_message, traceback.format_exc())
 
-        error = Error(errorCode=status_code, errorMsg=error_message)
+        error = Error(errorCode=error_code, errorMsg=error_message)
 
         return ReadingExtractionResponse(
             id=id if id else uuid4(),

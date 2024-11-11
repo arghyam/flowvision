@@ -12,7 +12,8 @@ class Config:
         load_dotenv()
         self.__openai_api_key = os.getenv("OPENAI_API_KEY")
 
-        config_file = os.getenv("CONFIG_PATH")
+        default_config_file_path = "conf/config.yaml"
+        config_file = os.getenv("CONFIG_PATH") or default_config_file_path
         with open(config_file, "r") as f:
             self.config = yaml.safe_load(f)
 
