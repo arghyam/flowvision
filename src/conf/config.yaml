@@ -1,10 +1,11 @@
 log_level: "info"
 file_size_limit: 10485760
-presigned_url_expiration: 3600
+presigned_url_expiration: 60
 
 s3:
   endpoint_url: "http://localhost.localstack.cloud:4566"
-  bucket_name: "test-bucket"
+  # bucket_name: "test-bucket"  # local stack s3 bucket name
+  bucket_name: "flowvision-test-bucket"  # aws test s3 bucket name
 
 app_server:
   port: 8000

@@ -27,7 +27,7 @@ class Config:
             else:
                 raise KeyError
         except KeyError:
-            # element_value = None
+            element_value = None
             logging.warning(f"Path '{path}' not found in config file.")
         finally:
             return element_value or default

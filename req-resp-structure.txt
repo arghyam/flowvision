@@ -2,7 +2,8 @@
 {
   "id": uuid,
   "ts": datetime,
-  "image": file
+  "image": file,
+  "metadata": optional[dict]
 }
 
 {

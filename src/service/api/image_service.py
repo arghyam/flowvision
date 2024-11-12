@@ -2,8 +2,8 @@ import logging
 from http import HTTPStatus
 import traceback
 from datetime import datetime
-import boto3
 import requests
+import boto3
 from botocore.config import Config as BotoConfig
 from uuid import uuid4, UUID
 
@@ -23,13 +23,18 @@ class ImageService:
         self.bucket_name = config.find("s3.bucket_name")
         self.s3_client = boto3.client(
             "s3",
-            endpoint_url=config.find("s3.endpoint_url"),
+            # endpoint_url=config.find("s3.endpoint_url"),
             config=BotoConfig(signature_version='s3v4')
         )
 
-    def _send_to_storage(self, url, image_bytes):
+    def _send_to_storage(self, url, image_bytes, content_type):
         try:
-            http_response = requests.put(url=url, data=image_bytes)
+            http_response = requests.put(
+                url=url,
+                data=image_bytes,
+                headers={'Content-Type': content_type}
+            )
+
         except Exception as e:
             logging.error(f"Error uploading image to presigned URL: {str(e)}")
             raise CustomHTTPException(
@@ -38,6 +43,7 @@ class ImageService:
             )
 
         if http_response.status_code != HTTPStatus.OK.value:
+            logging.error(f"AWS PUT BUCKET RESPONSE: {http_response.__dict__}")
             raise CustomHTTPException(
                 status_code=http_response.status_code,
                 detail=f"Error uploading image to presigned URL: {http_response.reason}"
@@ -53,6 +59,7 @@ class ImageService:
                 detail=f"Error retrieving image from presigned URL: {str(e)}"
             )
         if http_response.status_code != HTTPStatus.OK.value:
+            logging.error(f"AWS GET BUCKET RESPONSE: {http_response.__dict__}")
             raise CustomHTTPException(
                 status_code=http_response.status_code,
                 detail=f"Error retrieving image from presigned URL: {http_response.reason}"
@@ -65,12 +72,15 @@ class ImageService:
 
         try:
             image_bytes, content_type, file_name = await self.image_validator.validate(request)
-            url = self.generate_presigned_url(object_key=file_name, content_type=content_type)
-            self._send_to_storage(url=url, image_bytes=image_bytes)
+            upload_url = self.generate_presigned_upload_url(object_key=file_name, content_type=content_type)
+            logging.info(msg=f"PRESIGNED UPLOAD URL GENERATED: {upload_url}")
+            download_url = self.generate_presigned_download_url(object_key=file_name)
+            logging.info(msg=f"PRESIGNED DOWNLOAD URL GENERATED: {download_url}")
 
+            self._send_to_storage(url=upload_url, image_bytes=image_bytes, content_type=content_type)
             await request.image.close()
 
-            result = ImageUploadResult(imageURL=url)
+            result = ImageUploadResult(imageURL=download_url)
 
             return ImageUploadResponse(
                 id=request.id if request.id else uuid4(),
@@ -95,8 +105,9 @@ class ImageService:
         response_code = HTTPStatus.OK.phrase
 
         try:
-            image_bytes = await self._get_from_storage(request.imageURL)
-            meter_reading = self.vision_service.read(image_bytes=image_bytes)
+            # image_bytes = await self._get_from_storage(request.imageURL)
+            # meter_reading = self.vision_service.read(image_bytes=image_bytes)
+            meter_reading = self.vision_service.read(download_url=request.imageURL)
 
             if 'nometer' in meter_reading.lower():
                 meter_reading_status = Status.NOMETER
@@ -125,7 +136,7 @@ class ImageService:
         except Exception as e:
             return self.handle_other_exceptions(error=e, id=request.id or None)
 
-    def generate_presigned_url(self, object_key: str, content_type: str = None, expiration: int = None) -> str:
+    def generate_presigned_upload_url(self, object_key: str, content_type: str = None, expiration: int = None) -> str:
         """
         Generate a presigned URL for uploading an object to S3.
 
@@ -155,10 +166,30 @@ class ImageService:
             )
             return url
         except Exception as e:
-            logging.error(f"Error generating presigned URL: {str(e)}")
+            logging.error(f"Error generating presigned upload URL: {str(e)}")
             raise CustomHTTPException(
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR.value,
-                detail=f"Failed to generate presigned URL: {str(e)}"
+                detail=f"Failed to generate presigned upload URL: {str(e)}"
+            )
+
+    def generate_presigned_download_url(self, object_key: str, expiration: int = None) -> str:
+        try:
+            if expiration is None:
+                expiration = self.presigned_url_expiration
+            url = self.s3_client.generate_presigned_url(
+                'get_object',
+                Params={
+                    'Bucket': self.bucket_name,
+                    'Key': object_key,
+                },
+                ExpiresIn=expiration
+            )
+            return url
+        except Exception as e:
+            logging.error(f"Error generating presigned download URL: {str(e)}")
+            raise CustomHTTPException(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR.value,
+                detail=f"Failed to generate presigned download URL: {str(e)}"
             )
 
     def handle_custom_http_exception(self, error: CustomHTTPException, id: UUID | None = None):

@@ -29,14 +29,19 @@ class OpenAIVisionService(BaseVisionService):
         return context
 
     # Will need to change to just use url
-    def read(self, image_bytes):
+    def read(self, image_bytes: bytes | None = None, download_url: str | None = None) -> str:
         try:
-            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            if download_url:
+                url = download_url
+            elif image_bytes:
+                base64_image = base64.b64encode(image_bytes).decode('utf-8')
+                url = f"data:image/jpeg;base64,{base64_image}"
+
             messages = []
             messages.append({"role": "system", "content": [{"type": "text", "text": self.system_context()}]})
             messages.append({"role": "user", "content": [
                 {"type": "text", "text": "Extract the meter readings from the image"},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                {"type": "image_url", "image_url": {"url": url}}
             ]})
 
             response = self.openai_client.chat.completions.create(
