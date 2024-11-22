@@ -26,23 +26,25 @@ paths:
                 value:
                   id: 2800d121-02b4-471d-bc33-be3a56f8db2a
                   ts: 1729600269
-                  filename: object.jpg
+                  filename: meter-reading.jpg
         required: true
       responses:
         '200':
-          description: Successful Response
+          description: Successfully generated upload URL
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/GetUploadUrlResponse'
-          id: 2800d121-02b4-471d-bc33-be3a56f8db2a
-          ts: 1729600269
-          responseCode: OK
-          statusCode: 200
-          result:
-            data:
-              imageURL: https://test-bucket.s3.amazonaws.com/path/to/your/object.jpg
-              expiry: 3600
+              example:
+                id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                ts: 1729600269
+                responseCode: OK
+                statusCode: 200
+                result:
+                  data:
+                    imageURL: >-
+                      https://test-bucket.s3.amazonaws.com/path/to/your/object.jpg
+                    expiry: 3600
         '422':
           description: Validation Error
           content:
@@ -50,14 +52,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
         '500':
-          description: Internal Server Error
-          id: 2800d121-02b4-471d-bc33-be3a56f8db2a
-          ts: 1729600269
-          responseCode: OK
-          statusCode: 200
-          error:
-            errorCode: ERR_IMAGE_UPLOAD_FAILED
-            errorMsg: Failed to upload image
+          description: Failed to generate upload URL
+          content:
+            application/json:
+              example:
+                id: 2900d121-02b4-471d-bc33-be3a56f8db2a
+                ts: 1729600269
+                responseCode: ERROR
+                statusCode: 500
+                error:
+                  errorCode: ERR_IMAGE_UPLOAD_FAILED
+                  errorMsg: Failed to generate pre-signed URL for image upload
   /flowvision/v1/extract-reading:
     post:
       tags:
