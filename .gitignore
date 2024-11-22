@@ -1,0 +1,8 @@
+venv/
+env/
+__pycache__/
+data/
+.flake8
+.env
+.DS_Store
+ingestion/

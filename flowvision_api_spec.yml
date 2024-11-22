@@ -1,0 +1,540 @@
+openapi: 3.1.0
+info:
+  title: JJM Meter Reading Extraction API(s)
+  description: >-
+    Set of API specifications for extracting meter reading from an image
+    `/flowvision/v1`.
+  version: v1
+  x-logo:
+    url: https://fastapi.tiangolo.com/img/logo-margin/logo-teal.png
+paths:
+  /flowvision/v1/getUploadUrl:
+    post:
+      tags:
+        - image-handlers
+      summary: Get Upload Url
+      description: Get a signed URL to Upload an image to a S3 bucket.
+      operationId: get_upload_url_flowvision_v1_getUploadUrl_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetUploadUrlRequest'
+            examples:
+              image-handlers:
+                summary: Get a signed url to upload an image
+                value:
+                  id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                  ts: 1729600269
+                  filename: object.jpg
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetUploadUrlResponse'
+          id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+          ts: 1729600269
+          responseCode: OK
+          statusCode: 200
+          result:
+            data:
+              imageURL: https://test-bucket.s3.amazonaws.com/path/to/your/object.jpg
+              expiry: 3600
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '500':
+          description: Internal Server Error
+          id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+          ts: 1729600269
+          responseCode: OK
+          statusCode: 200
+          error:
+            errorCode: ERR_IMAGE_UPLOAD_FAILED
+            errorMsg: Failed to upload image
+  /flowvision/v1/extract-reading:
+    post:
+      tags:
+        - image-handlers
+      summary: Extract Reading
+      description: Extract meter reading from an image.
+      operationId: extract_reading_flowvision_v1_extract_reading_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExtractReadingRequest'
+            examples:
+              image-handlers:
+                summary: Extract reading example
+                value:
+                  id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                  ts: 1729600269
+                  imageURL: https://test-bucket.s3.amazonaws.com/path/to/your/object.jpg
+        required: true
+      responses:
+        '200':
+          description: Successful reading extraction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractReadingResponse'
+              example:
+                id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                ts: 1729600269
+                responseCode: OK
+                statusCode: 200
+                result:
+                  status: SUCCESS
+                  data:
+                    meterReading: 24506.9
+                    meterBrand: Belanto
+                    correlationId: cfde9907-55be-4820-b575-f28a476e2104
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '500':
+          description: Error in reading extraction
+          content:
+            application/json:
+              example:
+                id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                ts: 1729600269
+                responseCode: ERROR
+                statusCode: 500
+                error:
+                  errorCode: ERR_READING_EXTRACTION_FAILED
+                  errorMsg: Failed to extract meter reading
+  /flowvision/v1/feedback:
+    post:
+      tags:
+        - feedback
+      summary: Provide Feedback
+      description: Provide feedback for an extracted reading from the image.
+      operationId: provide_feedback_flowvision_v1_feedback_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+            examples:
+              feedback:
+                summary: Provide feedback for an extracted reading from the image
+                value:
+                  id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                  ts: 1729600269
+                  correlationId: cfde9907-55be-4820-b575-f28a476e2104
+                  data:
+                    meterReading:
+                      accurate: false
+                      extracted: 24509.6
+                      actual: 24406.9
+        required: true
+      responses:
+        '200':
+          description: Feedback submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackResponse'
+              example:
+                id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                ts: 1729600269
+                responseCode: OK
+                statusCode: 200
+                result:
+                  status: SUBMITTED
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '500':
+          description: Error submitting feedback
+          content:
+            application/json:
+              example:
+                id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                ts: 1729600269
+                responseCode: ERROR
+                statusCode: 500
+                error:
+                  errorCode: ERR_FEEDBACK_SUBMISSION_FAILED
+                  errorMsg: Failed to submit feedback
+components:
+  schemas:
+    ExtractReadingRequest:
+      properties:
+        id:
+          type: string
+          title: Id
+        ts:
+          type: string
+          format: date-time
+          title: Ts
+        imageURL:
+          type: string
+          title: Imageurl
+        metadata:
+          anyOf:
+            - type: object
+            - type: 'null'
+          title: Metadata
+      type: object
+      required:
+        - id
+        - ts
+        - imageURL
+        - metadata
+      title: ExtractReadingRequest
+    ExtractReadingResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        ts:
+          type: string
+          format: date-time
+          title: Ts
+        responseCode:
+          $ref: '#/components/schemas/ResponseCode'
+        statusCode:
+          $ref: '#/components/schemas/HTTPStatus'
+        errorCode:
+          anyOf:
+            - $ref: '#/components/schemas/ResponseError'
+            - type: 'null'
+        result:
+          anyOf:
+            - $ref: '#/components/schemas/ExtractReadingResultWrapper'
+            - type: 'null'
+      type: object
+      required:
+        - id
+        - ts
+        - responseCode
+        - statusCode
+        - errorCode
+        - result
+      title: ExtractReadingResponse
+    ExtractReadingResultWrapper:
+      properties:
+        status:
+          $ref: '#/components/schemas/ExtractReadingStatus'
+        data:
+          $ref: '#/components/schemas/GetUploadUrlResultData'
+      type: object
+      required:
+        - status
+        - data
+      title: ExtractReadingResultWrapper
+    ExtractReadingStatus:
+      type: string
+      enum:
+        - NOMETER
+        - UNCLEAR
+        - INVALID
+        - SUCCESS
+      title: ExtractReadingStatus
+    FeddbackResultWrapper:
+      properties:
+        status:
+          $ref: '#/components/schemas/FeedbackStatus'
+      type: object
+      required:
+        - status
+      title: FeddbackResultWrapper
+    FeedbackData:
+      properties:
+        accurate:
+          type: boolean
+          title: Accurate
+        extracted:
+          type: number
+          title: Extracted
+        actual:
+          type: number
+          title: Actual
+      type: object
+      required:
+        - accurate
+        - extracted
+        - actual
+      title: FeedbackData
+    FeedbackDataWrapper:
+      properties:
+        meterReading:
+          $ref: '#/components/schemas/FeedbackData'
+      type: object
+      required:
+        - meterReading
+      title: FeedbackDataWrapper
+    FeedbackRequest:
+      properties:
+        id:
+          type: string
+          title: Id
+        ts:
+          type: string
+          format: date-time
+          title: Ts
+        correlationId:
+          type: string
+          title: Correlationid
+        data:
+          $ref: '#/components/schemas/FeedbackDataWrapper'
+      type: object
+      required:
+        - id
+        - ts
+        - correlationId
+        - data
+      title: FeedbackRequest
+    FeedbackResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        ts:
+          type: string
+          format: date-time
+          title: Ts
+        responseCode:
+          $ref: '#/components/schemas/ResponseCode'
+        statusCode:
+          $ref: '#/components/schemas/HTTPStatus'
+        errorCode:
+          anyOf:
+            - $ref: '#/components/schemas/ResponseError'
+            - type: 'null'
+        result:
+          anyOf:
+            - $ref: '#/components/schemas/FeddbackResultWrapper'
+            - type: 'null'
+      type: object
+      required:
+        - id
+        - ts
+        - responseCode
+        - statusCode
+        - errorCode
+        - result
+      title: FeedbackResponse
+    FeedbackStatus:
+      type: string
+      enum:
+        - SUBMITTED
+        - FAILED
+      title: FeedbackStatus
+    GetUploadUrlRequest:
+      properties:
+        id:
+          type: string
+          title: Id
+        ts:
+          type: string
+          format: date-time
+          title: Ts
+        filename:
+          type: string
+          title: Filename
+      type: object
+      required:
+        - id
+        - ts
+        - filename
+      title: GetUploadUrlRequest
+    GetUploadUrlResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        ts:
+          type: string
+          format: date-time
+          title: Ts
+        responseCode:
+          $ref: '#/components/schemas/ResponseCode'
+        statusCode:
+          $ref: '#/components/schemas/HTTPStatus'
+        error:
+          anyOf:
+            - $ref: '#/components/schemas/ResponseError'
+            - type: 'null'
+        result:
+          anyOf:
+            - $ref: '#/components/schemas/GetUploadUrlResultWrapper'
+            - type: 'null'
+      type: object
+      required:
+        - id
+        - ts
+        - responseCode
+        - statusCode
+        - error
+        - result
+      title: GetUploadUrlResponse
+    GetUploadUrlResultData:
+      properties:
+        imageURL:
+          type: string
+          title: Imageurl
+        expiry:
+          type: integer
+          title: Expiry
+      type: object
+      required:
+        - imageURL
+        - expiry
+      title: GetUploadUrlResultData
+    GetUploadUrlResultWrapper:
+      properties:
+        data:
+          $ref: '#/components/schemas/GetUploadUrlResultData'
+      type: object
+      required:
+        - data
+      title: GetUploadUrlResultWrapper
+    HTTPStatus:
+      type: integer
+      enum:
+        - 100
+        - 101
+        - 102
+        - 103
+        - 200
+        - 201
+        - 202
+        - 203
+        - 204
+        - 205
+        - 206
+        - 207
+        - 208
+        - 226
+        - 300
+        - 301
+        - 302
+        - 303
+        - 304
+        - 305
+        - 307
+        - 308
+        - 400
+        - 401
+        - 402
+        - 403
+        - 404
+        - 405
+        - 406
+        - 407
+        - 408
+        - 409
+        - 410
+        - 411
+        - 412
+        - 413
+        - 414
+        - 415
+        - 416
+        - 417
+        - 418
+        - 421
+        - 422
+        - 423
+        - 424
+        - 425
+        - 426
+        - 428
+        - 429
+        - 431
+        - 451
+        - 500
+        - 501
+        - 502
+        - 503
+        - 504
+        - 505
+        - 506
+        - 507
+        - 508
+        - 510
+        - 511
+      title: HTTPStatus
+      description: |-
+        HTTP status codes and reason phrases
+
+        Status codes from the following RFCs are all observed:
+
+            * RFC 7231: Hypertext Transfer Protocol (HTTP/1.1), obsoletes 2616
+            * RFC 6585: Additional HTTP Status Codes
+            * RFC 3229: Delta encoding in HTTP
+            * RFC 4918: HTTP Extensions for WebDAV, obsoletes 2518
+            * RFC 5842: Binding Extensions to WebDAV
+            * RFC 7238: Permanent Redirect
+            * RFC 2295: Transparent Content Negotiation in HTTP
+            * RFC 2774: An HTTP Extension Framework
+            * RFC 7725: An HTTP Status Code to Report Legal Obstacles
+            * RFC 7540: Hypertext Transfer Protocol Version 2 (HTTP/2)
+            * RFC 2324: Hyper Text Coffee Pot Control Protocol (HTCPCP/1.0)
+            * RFC 8297: An HTTP Status Code for Indicating Hints
+            * RFC 8470: Using Early Data in HTTP
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ResponseCode:
+      type: string
+      enum:
+        - OK
+        - ERROR
+      title: ResponseCode
+    ResponseError:
+      properties:
+        errorCode:
+          type: string
+          title: Errorcode
+        errorMsg:
+          type: string
+          title: Errormsg
+      type: object
+      required:
+        - errorCode
+        - errorMsg
+      title: ResponseError
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+        - loc
+        - msg
+        - type
+      title: ValidationError

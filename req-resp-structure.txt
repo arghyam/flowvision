@@ -1,0 +1,46 @@
+/api/v1/flowvision/uploadImage
+{
+  "id": uuid,
+  "ts": datetime,
+  "image": file,
+  "metadata": optional[dict]
+}
+
+{
+  "id": uuid,
+  "ts": datetime,
+  "responseCode": string,
+  "statusCode": int,
+  "result": {
+    "imageURL": optional[string]
+  },
+  "error" {
+    "errorCode": int,
+    "errorMsg": string
+  }
+}
+
+POST /api/v1/flowvision/extractReading
+{
+  "id": uuid,
+  "ts": datetime,
+  "imageURL": string,
+  "metadata": optional[dict]
+}
+
+{
+  "id": uuid,
+  "ts": datetime,
+  "responseCode": string,
+  "statusCode": int,
+  "result": {
+    "status": enum("nometer", "unclear", "success"),
+    "meterReading": optional[float],
+    "meterBrand": optional[string],
+  },
+  "error" {
+    "errorCode": int,
+    "errorMsg": string
+  }
+}
+
