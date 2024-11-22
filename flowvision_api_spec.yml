@@ -8,61 +8,6 @@ info:
   x-logo:
     url: https://fastapi.tiangolo.com/img/logo-margin/logo-teal.png
 paths:
-  /flowvision/v1/getUploadUrl:
-    post:
-      tags:
-        - image-handlers
-      summary: Get Upload Url
-      description: Get a signed URL to Upload an image to a S3 bucket.
-      operationId: get_upload_url_flowvision_v1_getUploadUrl_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/GetUploadUrlRequest'
-            examples:
-              image-handlers:
-                summary: Get a signed url to upload an image
-                value:
-                  id: 2800d121-02b4-471d-bc33-be3a56f8db2a
-                  ts: 1729600269
-                  filename: meter-reading.jpg
-        required: true
-      responses:
-        '200':
-          description: Successfully generated upload URL
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GetUploadUrlResponse'
-              example:
-                id: 2800d121-02b4-471d-bc33-be3a56f8db2a
-                ts: 1729600269
-                responseCode: OK
-                statusCode: 200
-                result:
-                  data:
-                    imageURL: >-
-                      https://test-bucket.s3.amazonaws.com/path/to/your/object.jpg
-                    expiry: 3600
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-        '500':
-          description: Failed to generate upload URL
-          content:
-            application/json:
-              example:
-                id: 2900d121-02b4-471d-bc33-be3a56f8db2a
-                ts: 1729600269
-                responseCode: ERROR
-                statusCode: 500
-                error:
-                  errorCode: ERR_IMAGE_UPLOAD_FAILED
-                  errorMsg: Failed to generate pre-signed URL for image upload
   /flowvision/v1/extract-reading:
     post:
       tags:
@@ -341,54 +286,6 @@ components:
         - SUBMITTED
         - FAILED
       title: FeedbackStatus
-    GetUploadUrlRequest:
-      properties:
-        id:
-          type: string
-          title: Id
-        ts:
-          type: string
-          format: date-time
-          title: Ts
-        filename:
-          type: string
-          title: Filename
-      type: object
-      required:
-        - id
-        - ts
-        - filename
-      title: GetUploadUrlRequest
-    GetUploadUrlResponse:
-      properties:
-        id:
-          type: string
-          title: Id
-        ts:
-          type: string
-          format: date-time
-          title: Ts
-        responseCode:
-          $ref: '#/components/schemas/ResponseCode'
-        statusCode:
-          $ref: '#/components/schemas/HTTPStatus'
-        error:
-          anyOf:
-            - $ref: '#/components/schemas/ResponseError'
-            - type: 'null'
-        result:
-          anyOf:
-            - $ref: '#/components/schemas/GetUploadUrlResultWrapper'
-            - type: 'null'
-      type: object
-      required:
-        - id
-        - ts
-        - responseCode
-        - statusCode
-        - error
-        - result
-      title: GetUploadUrlResponse
     GetUploadUrlResultData:
       properties:
         imageURL:
@@ -402,14 +299,6 @@ components:
         - imageURL
         - expiry
       title: GetUploadUrlResultData
-    GetUploadUrlResultWrapper:
-      properties:
-        data:
-          $ref: '#/components/schemas/GetUploadUrlResultData'
-      type: object
-      required:
-        - data
-      title: GetUploadUrlResultWrapper
     HTTPStatus:
       type: integer
       enum:
