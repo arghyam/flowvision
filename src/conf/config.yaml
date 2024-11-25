@@ -22,3 +22,14 @@ image_crop:
   top: 0.2
   right: 0.9
   bottom: 0.8
+
+logs:
+  api_logger:
+    path: "logs/api_logs"
+    name: "FlowVision"
+  feedback_request_logger:
+    path: "logs/feedback_request_logs"
+    name: "FeedbackRequest"
+  extraction_request_logger:
+    path: "logs/extraction_request_logs"
+    name: "ExtractionRequest"
