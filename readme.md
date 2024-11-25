@@ -7,7 +7,7 @@
 5. The following are the endpoints exposed from the service
     (a) POST /flowvision/v1/extract-reading
     (b) POST /flowvision/v1/feedback
-6. The [API specification](flowvision_api_spec.yaml) will give more details about the request and response structure
+6. The [API specification](flowvision_api_spec.yml) will give more details about the request and response structure
 
 ## Use Qwen2-VL model
 
