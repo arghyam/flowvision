@@ -4,9 +4,21 @@ presigned_url_expiration: 60
 
 s3:
   endpoint_url: "http://localhost.localstack.cloud:4566"
-  # bucket_name: "test-bucket"  # local stack s3 bucket name
-  bucket_name: "flowvision-test-bucket"  # aws test s3 bucket name
+  bucket_name: "flowvision-test-bucket"
 
 app_server:
   port: 8000
   app: "routes:app"
+
+# vision_model: "gpt-4o"
+vision_model: "Qwen/Qwen2-VL-2B-Instruct"
+
+image_resizing:
+  width: 800
+  height: 1000
+
+image_crop:
+  left: 0.1
+  top: 0.2
+  right: 0.9
+  bottom: 0.8

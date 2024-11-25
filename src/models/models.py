@@ -3,54 +3,76 @@ from datetime import datetime
 from fastapi import UploadFile
 from enum import StrEnum
 from uuid import UUID
+from typing import Optional, Dict, Any
+
+class Error(BaseModel):
+  errorCode: str | int
+  errorMsg: str
+
+class ResponseCode(StrEnum):
+  OK = "OK"
+  ERROR = "ERROR"
+
+class FeedbackResponseStatus(StrEnum):
+  SUBMITTED = "SUBMITTED"
+  FAILED = "FAILED"
+
+class Status(StrEnum):
+  NOMETER = 'NOMETER'
+  UNCLEAR = 'UNCLEAR'
+  SUCCESS = 'SUCCESS'
+
+class BaseResponse(BaseModel):
+  id: UUID
+  ts: datetime
+  responseCode: ResponseCode
+  statusCode: int
+  error: Optional[Error] = None
+
+class BaseRequest(BaseModel):
+  id: Optional[UUID] = None
+  ts: datetime
+
+class ReadingExtractionRequest(BaseModel):
+  id: Optional[UUID] = None
+  ts: datetime
+  imageURL: str
+  metadata: Optional[Dict[str, Any]] = None
 
 
 class ImageUploadRequest(BaseModel):
-    id: UUID | None = None
-    ts: datetime
-    image: UploadFile
-    metadata: dict | None = None
-
-
-class ReadingExtractionRequest(BaseModel):
-    id: UUID | None = None
-    ts: str
-    imageURL: str
-    metadata: dict | None = None
-
-
-class Error(BaseModel):
-    errorCode: str | int
-    errorMsg: str
-
-
-class Status(StrEnum):
-    NOMETER = 'nometer'
-    UNCLEAR = 'unclear'
-    SUCCESS = 'success'
-
+  id: UUID | None = None
+  ts: datetime
+  image: UploadFile
+  metadata: dict | None = None
 
 class ImageUploadResult(BaseModel):
-    imageURL: str
+  imageURL: str
 
+class ReadingExtractionResultData(BaseModel):
+  meterReading: Optional[float | str] = None
+  meterBrand: Optional[str] = None 
 
 class ReadingExtractionResult(BaseModel):
-    status: Status
-    meterReading: float | str | None = None
-    meterBrand: str | None = None
-
-
-class BaseResponse(BaseModel):
-    id: UUID
-    ts: datetime
-    responseCode: str
-    statusCode: int
-    error: Error | None = None
-
+  status: Status
+  correlationId: UUID
+  data: Optional[ReadingExtractionResultData] = None
 
 class ImageUploadResponse(BaseResponse):
-    result: ImageUploadResult | None = None
+  result: ImageUploadResult | None = None
 
 
 class ReadingExtractionResponse(BaseResponse):
-    result: ReadingExtractionResult | None = None
+  result: Optional[ReadingExtractionResult] = None
+
+
+class FeedbackRequestData(BaseModel):
+  accurate: bool
+  actualReading: Optional[float] = None 
+
+class FeedbackRequest(BaseRequest):
+  correlationId: UUID
+  data: FeedbackRequestData
+
+class FeedbackResponse(BaseResponse):
+  status: FeedbackResponseStatus

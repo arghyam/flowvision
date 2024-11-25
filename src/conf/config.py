@@ -9,16 +9,12 @@ from functools import reduce
 
 class Config:
     def __init__(self):
-        load_dotenv()
-        self.__openai_api_key = os.getenv("OPENAI_API_KEY")
 
-        default_config_file_path = "conf/config.yaml"
+        default_config_file_path = "src/conf/config.yaml"
         config_file = os.getenv("CONFIG_PATH") or default_config_file_path
         with open(config_file, "r") as f:
             self.config = yaml.safe_load(f)
 
-    def openai_api_key(self):
-        return self.__openai_api_key
 
     def find(self, path, default=None):
         try:
