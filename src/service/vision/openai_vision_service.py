@@ -6,12 +6,13 @@ from service.vision.base_vision_service import BaseVisionService
 from conf.config import Config
 
 import os
-from PIL import Image, ImageFile
+import logging
 
 class OpenAIVisionService(BaseVisionService):
     def __init__(self):
-        print("Creating OpenAI client...")
-
+        logging.basicConfig()
+        self.logger = logging.getLogger("FlowVision")
+        self.logger.info("Creating OpenAI client...")
         self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     def system_context(self):

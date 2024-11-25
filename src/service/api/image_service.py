@@ -2,26 +2,25 @@ import logging
 from http import HTTPStatus
 import traceback
 from datetime import datetime
-import boto3
-from botocore.config import Config as BotoConfig
 from uuid import uuid4, UUID
 
 from error.error import CustomHTTPException
-from validation.validators import ImageValidator
 from service.vision.openai_vision_service import OpenAIVisionService
 from service.vision.qwen_vision_service import QwenVisionService
-from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult
+from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus
 from conf.config import Config
 from PIL import Image
-import base64
-
 
 import requests
 from io import BytesIO
+import logging
+import json
 
 
 class ImageService:
     def __init__(self, config: Config):
+        logging.basicConfig()
+        self.logger = logging.getLogger("FlowVision")
         vision_model: str = config.find("vision_model")
         if ('gpt-4o'.lower() == vision_model.lower()):
             self.model = "GPT"
@@ -79,7 +78,7 @@ class ImageService:
 
     def extract_reading(self, request: ReadingExtractionRequest) -> ReadingExtractionResponse:
         status_code = HTTPStatus.OK.value
-        response_code = HTTPStatus.OK.phrase
+        response_code = ResponseCode.OK
 
         try:
             cropped_image = self.preprocess_image(request.imageURL)
@@ -93,9 +92,9 @@ class ImageService:
                 meter_reading_status = Status.SUCCESS
 
             result = ReadingExtractionResult(
-                status=meter_reading_status,
-                meterReading=meter_reading,
-                meterBrand=None
+                status=meter_reading_status, 
+                correlationId=uuid4(),
+                data = ReadingExtractionResultData(meterReading=meter_reading)
             )
 
             return ReadingExtractionResponse(
@@ -110,11 +109,24 @@ class ImageService:
         except Exception as e:
             return self.handle_other_exceptions(error=e, id=request.id or None)
 
+    def log_feedback(self, request: FeedbackRequest):
+        status_code = HTTPStatus.OK.value
+        response_code = ResponseCode.OK
+        
+        self.logger.info(json.dumps(request))
+        
+        return ReadingExtractionResponse(
+            id=request.id if request.id else uuid4(),
+            ts=datetime.now(),
+            responseCode=response_code,
+            statusCode=status_code,
+            result=FeedbackResponseStatus.SUBMITTED
+        )
 
 
     def handle_custom_http_exception(self, error: CustomHTTPException, id: UUID | None = None):
         status_code = error.status_code
-        response_code = error.phrase
+        response_code = ResponseCode.ERROR
         error_code = error.error_code
         error_message = error.detail
         logging.error("\nError type: %s\nTrace: %s", error_message, traceback.format_exc())
@@ -131,7 +143,7 @@ class ImageService:
 
     def handle_other_exceptions(self, error: Exception, id: UUID | None = None):
         status_code = HTTPStatus.INTERNAL_SERVER_ERROR.value
-        response_code = HTTPStatus.INTERNAL_SERVER_ERROR.phrase
+        response_code = ResponseCode.ERROR
         error_message = str(error)
         logging.error("\nError type: %s\nTrace: %s", type(error).__name__, traceback.format_exc())
 

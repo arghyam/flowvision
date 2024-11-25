@@ -1,16 +1,16 @@
 from transformers import Qwen2VLForConditionalGeneration, AutoTokenizer, AutoProcessor
 from qwen_vl_utils import process_vision_info
 import torch
-from PIL import Image
 from service.vision.base_vision_service import BaseVisionService
 import base64
 from conf.config import Config
+import logging
 
 class QwenVisionService(BaseVisionService):
   
   def __init__(self) -> None:
     config = Config()
-    print("Loading Qwen2-VL model...")
+    logging.info("Loading Qwen2-VL model...")
     model_name = config.find("vision_model")
     self.gpu_type = "mps"
     if self.gpu_type == "cuda":
