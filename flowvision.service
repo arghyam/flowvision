@@ -1,0 +1,16 @@
+[Unit]
+Description=Flowvision APIs
+After=network.target
+
+[Service]
+WorkingDirectory=/home/ubuntu/code/arghyam
+ExecStart=/home/ubuntu/code/arghyam/flowvision_venv/bin/python /home/ubuntu/code/arghyam/flowvision/src/run.py
+Restart=on-failure
+StartLimitInterval=60
+RestartSec=120
+User=ubuntu
+Group=ubuntu
+
+[Install]
+WantedBy=multi-user.target
+Alias=flowvision.service
