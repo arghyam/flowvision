@@ -37,19 +37,15 @@ class BaseResponse(BaseModel):
 
 class BaseRequest(BaseModel):
   id: Optional[UUID] = None
-  ts: datetime
+  ts: Optional[datetime] = None
 
 
-class ReadingExtractionRequest(BaseModel):
-  id: Optional[UUID] = None
-  ts: datetime
+class ReadingExtractionRequest(BaseRequest):
   imageURL: str
   metadata: Optional[Dict[str, Any]] = None
 
 
-class ImageUploadRequest(BaseModel):
-  id: UUID | None = None
-  ts: datetime
+class ImageUploadRequest(BaseRequest):
   image: UploadFile
   metadata: dict | None = None
 

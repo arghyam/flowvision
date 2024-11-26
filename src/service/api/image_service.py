@@ -84,6 +84,8 @@ class ImageService:
     def extract_reading(self, request: ReadingExtractionRequest) -> ReadingExtractionResponse:
         status_code = HTTPStatus.OK.value
         response_code = ResponseCode.OK
+        request.id = request.id if request.id else uuid4()
+        request.ts = request.ts if request.ts else datetime.now()
 
         try:
             self.extraction_logger.info(str(request.model_dump_json()))
@@ -102,9 +104,8 @@ class ImageService:
                 correlationId=uuid4(),
                 data=ReadingExtractionResultData(meterReading=meter_reading)
             )
-
             return ReadingExtractionResponse(
-                id=request.id if request.id else uuid4(),
+                id=request.id,
                 ts=datetime.now(),
                 responseCode=response_code,
                 statusCode=status_code,
@@ -118,45 +119,65 @@ class ImageService:
     def log_feedback(self, request: FeedbackRequest):
         status_code = HTTPStatus.OK.value
         response_code = ResponseCode.OK
-        self.feedback_logger.info(str(request.model_dump_json()))
+        request.id = request.id if request.id else uuid4()
+        request.ts = request.ts if request.ts else datetime.now()
 
-        return FeedbackResponse(
-            id=request.id if request.id else uuid4(),
-            ts=datetime.now(),
-            responseCode=response_code,
-            statusCode=status_code,
-            status=FeedbackResponseStatus.SUBMITTED
-        )
+        try:
+            self.feedback_logger.info(str(request.model_dump_json()))
+            return FeedbackResponse(
+                id=request.id,
+                ts=datetime.now(),
+                responseCode=response_code,
+                statusCode=status_code,
+                status=FeedbackResponseStatus.SUBMITTED
+            )
+        except Exception as e:
+            self.base_logger.error("\nError type: %s\nTrace: %s\nRequest id: %s", type(e).__name__, traceback.format_exc(), request.id)
+            error = Error(errorCode=HTTPStatus.INTERNAL_SERVER_ERROR.value, errorMsg=type(e).__name__)
+            response = FeedbackResponse(
+                id=request.id,
+                ts=datetime.now(),
+                responseCode=ResponseCode.ERROR,
+                statusCode=HTTPStatus.INTERNAL_SERVER_ERROR.value,
+                error=error,
+                status=FeedbackResponseStatus.FAILED
+            )
+            self.base_logger.error(str(response.model_dump_json()))
+            return response
 
-    def handle_custom_http_exception(self, error: CustomHTTPException, id: UUID | None = None):
+    def handle_custom_http_exception(self, error: CustomHTTPException, id: UUID):
         status_code = error.status_code
         response_code = ResponseCode.ERROR
         error_code = error.error_code
         error_message = error.detail
-        self.base_logger.error("\nError type: %s\nTrace: %s", error_message, traceback.format_exc())
+        self.base_logger.error("\nError type: %s\nTrace: %s\nRequest id: %s", error_message, traceback.format_exc(), id)
 
         error = Error(errorCode=error_code, errorMsg=error_message)
 
-        return ReadingExtractionResponse(
-            id=id if id else uuid4(),
+        response = ReadingExtractionResponse(
+            id=id,
             ts=datetime.now(),
             responseCode=response_code,
             statusCode=status_code,
             error=error
         )
+        self.base_logger.error(str(response.model_dump_json()))
+        return response
 
-    def handle_other_exceptions(self, error: Exception, id: UUID | None = None):
+    def handle_other_exceptions(self, error: Exception, id: UUID):
         status_code = HTTPStatus.INTERNAL_SERVER_ERROR.value
         response_code = ResponseCode.ERROR
         error_message = str(error)
-        self.base_logger.error("\nError type: %s\nTrace: %s", type(error).__name__, traceback.format_exc())
+        self.base_logger.error("\nError type: %s\nTrace: %s\nRequest id: %s", type(error).__name__, traceback.format_exc(), id)
 
         error = Error(errorCode=HTTPStatus.INTERNAL_SERVER_ERROR.value, errorMsg=error_message)
 
-        return ReadingExtractionResponse(
-            id=id if id else uuid4(),
+        response = ReadingExtractionResponse(
+            id=id,
             ts=datetime.now(),
             responseCode=response_code,
             statusCode=status_code,
             error=error
         )
+        self.base_logger.error(str(response.model_dump_json()))
+        return response
