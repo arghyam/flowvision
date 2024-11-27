@@ -84,4 +84,4 @@ class FeedbackRequest(BaseRequest):
 
 
 class FeedbackResponse(BaseResponse):
-  status: FeedbackResponseStatus
+  status: Optional[FeedbackResponseStatus] = None

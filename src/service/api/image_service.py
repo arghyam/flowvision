@@ -8,24 +8,19 @@ from uuid import uuid4, UUID
 from error.error import CustomHTTPException
 from service.vision.openai_vision_service import OpenAIVisionService
 from service.vision.qwen_vision_service import QwenVisionService
-from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse
+from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, BaseResponse
 from conf.config import Config
 from PIL import Image
 
 import requests
 from io import BytesIO
-# import json
 
 
 class ImageService:
     def __init__(self, config: Config):
-        api_logger_name = config.find("logs.api_logger.name")
-        feedback_logger_name = config.find("logs.feedback_request_logger.name")
-        extraction_logger_name = config.find("logs.extraction_request_logger.name")
-
-        self.base_logger = logging.getLogger(api_logger_name)
-        self.feedback_logger = logging.getLogger(feedback_logger_name)
-        self.extraction_logger = logging.getLogger(extraction_logger_name)
+        self.base_logger = logging.getLogger(config.find("logs.api_logger.name"))
+        self.feedback_logger = logging.getLogger(config.find("logs.feedback_request_logger.name"))
+        self.extraction_logger = logging.getLogger(config.find("logs.extraction_request_logger.name"))
 
         vision_model: str = config.find("vision_model")
         if ('gpt-4o'.lower() == vision_model.lower()):
@@ -104,7 +99,7 @@ class ImageService:
                 correlationId=uuid4(),
                 data=ReadingExtractionResultData(meterReading=meter_reading)
             )
-            return ReadingExtractionResponse(
+            response = ReadingExtractionResponse(
                 id=request.id,
                 ts=datetime.now(),
                 responseCode=response_code,
@@ -112,9 +107,12 @@ class ImageService:
                 result=result
             )
         except CustomHTTPException as e:
-            return self.handle_custom_http_exception(error=e, id=request.id or None)
+            response = self.handle_custom_http_exception(error=e, id=request.id)
         except Exception as e:
-            return self.handle_other_exceptions(error=e, id=request.id or None)
+            response = self.handle_other_exceptions(error=e, id=request.id)
+            
+        self.extraction_logger.info(str(response.model_dump_json()))
+        return response
 
     def log_feedback(self, request: FeedbackRequest):
         status_code = HTTPStatus.OK.value
@@ -124,7 +122,7 @@ class ImageService:
 
         try:
             self.feedback_logger.info(str(request.model_dump_json()))
-            return FeedbackResponse(
+            response = FeedbackResponse(
                 id=request.id,
                 ts=datetime.now(),
                 responseCode=response_code,
@@ -132,25 +130,27 @@ class ImageService:
                 status=FeedbackResponseStatus.SUBMITTED
             )
         except Exception as e:
-            self.base_logger.error("\nError type: %s\nTrace: %s\nRequest id: %s", type(e).__name__, traceback.format_exc(), request.id)
-            error = Error(errorCode=HTTPStatus.INTERNAL_SERVER_ERROR.value, errorMsg=type(e).__name__)
-            response = FeedbackResponse(
-                id=request.id,
-                ts=datetime.now(),
-                responseCode=ResponseCode.ERROR,
-                statusCode=HTTPStatus.INTERNAL_SERVER_ERROR.value,
-                error=error,
-                status=FeedbackResponseStatus.FAILED
-            )
+            self.base_logger.error("\nError type: %s\nRequest id: %s\nTrace: %s", type(e).__name__, request.id, traceback.format_exc())
+            # error = Error(errorCode=HTTPStatus.INTERNAL_SERVER_ERROR.value, errorMsg=type(e).__name__)
+            # response = FeedbackResponse(
+            #     id=request.id,
+            #     ts=datetime.now(),
+            #     responseCode=ResponseCode.ERROR,
+            #     statusCode=HTTPStatus.INTERNAL_SERVER_ERROR.value,
+            #     error=error
+            # )
+            # self.base_logger.error(str(response.model_dump_json()))
+            response = self.handle_other_exceptions(error=e, id=request.id)
             self.base_logger.error(str(response.model_dump_json()))
-            return response
+
+        return response
 
     def handle_custom_http_exception(self, error: CustomHTTPException, id: UUID):
         status_code = error.status_code
         response_code = ResponseCode.ERROR
         error_code = error.error_code
         error_message = error.detail
-        self.base_logger.error("\nError type: %s\nTrace: %s\nRequest id: %s", error_message, traceback.format_exc(), id)
+        self.base_logger.error("\nError type: %s\nRequest id: %s\nTrace: %s", error_message, traceback.format_exc(), id)
 
         error = Error(errorCode=error_code, errorMsg=error_message)
 
@@ -168,11 +168,11 @@ class ImageService:
         status_code = HTTPStatus.INTERNAL_SERVER_ERROR.value
         response_code = ResponseCode.ERROR
         error_message = str(error)
-        self.base_logger.error("\nError type: %s\nTrace: %s\nRequest id: %s", type(error).__name__, traceback.format_exc(), id)
+        self.base_logger.error("\nError type: %s\nRequest id: %s\nTrace: %s", type(error).__name__, traceback.format_exc(), id)
 
         error = Error(errorCode=HTTPStatus.INTERNAL_SERVER_ERROR.value, errorMsg=error_message)
 
-        response = ReadingExtractionResponse(
+        response = BaseResponse(
             id=id,
             ts=datetime.now(),
             responseCode=response_code,
