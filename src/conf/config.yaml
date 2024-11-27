@@ -12,6 +12,7 @@ app_server:
 
 # vision_model: "gpt-4o"
 vision_model: "Qwen/Qwen2-VL-2B-Instruct"
+gpu_type: "cuda"
 
 image_resizing:
   width: 800
