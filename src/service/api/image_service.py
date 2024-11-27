@@ -130,19 +130,9 @@ class ImageService:
                 status=FeedbackResponseStatus.SUBMITTED
             )
         except Exception as e:
-            self.base_logger.error("\nError type: %s\nRequest id: %s\nTrace: %s", type(e).__name__, request.id, traceback.format_exc())
-            # error = Error(errorCode=HTTPStatus.INTERNAL_SERVER_ERROR.value, errorMsg=type(e).__name__)
-            # response = FeedbackResponse(
-            #     id=request.id,
-            #     ts=datetime.now(),
-            #     responseCode=ResponseCode.ERROR,
-            #     statusCode=HTTPStatus.INTERNAL_SERVER_ERROR.value,
-            #     error=error
-            # )
-            # self.base_logger.error(str(response.model_dump_json()))
             response = self.handle_other_exceptions(error=e, id=request.id)
-            self.base_logger.error(str(response.model_dump_json()))
-
+            
+        self.feedback_logger.info(str(response.model_dump_json()))
         return response
 
     def handle_custom_http_exception(self, error: CustomHTTPException, id: UUID):
