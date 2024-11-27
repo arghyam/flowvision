@@ -6,11 +6,14 @@ import base64
 from conf.config import Config
 import logging
 
+
 class QwenVisionService(BaseVisionService):
-  
+
   def __init__(self) -> None:
     config = Config()
-    logging.info("Loading Qwen2-VL model...")
+    api_logger_name = config.find("logs.api_logger.name")
+    base_logger = logging.getLogger(api_logger_name)
+    base_logger.info("Loading Qwen2-VL model...")
     model_name = config.find("vision_model")
     self.gpu_type = "mps"
     if self.gpu_type == "cuda":
@@ -44,8 +47,7 @@ class QwenVisionService(BaseVisionService):
     """
     return context
 
-
-  def extract(self, image = None, image_bytes: bytes | None = None, download_url: str | None = None):
+  def extract(self, image=None, image_bytes: bytes | None = None, download_url: str | None = None):
 
     try:
       content_messages = []
@@ -81,7 +83,7 @@ class QwenVisionService(BaseVisionService):
       # Inference: Generation of the output
       generated_ids = self.model.generate(**inputs, max_new_tokens=500)
       generated_ids_trimmed = [
-          out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+          out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
       ]
       output_text = self.processor.batch_decode(
           generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
@@ -90,6 +92,5 @@ class QwenVisionService(BaseVisionService):
 
     except Exception as e:
       raise e
-    
+
     return result
-  

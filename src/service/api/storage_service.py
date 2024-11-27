@@ -13,16 +13,19 @@ from uuid import uuid4, UUID
 
 import os
 
+
 class StorageService:
   def __init__(self, config: Config):
+    feedback_logger_name = config.find("logs.feedback_request_logger.name")
+    self.logger = logging.getLogger(feedback_logger_name)
     self.config = config
     self.image_validator = ImageValidator(config)
     self.presigned_url_expiration = config.find("presigned_url_expiration")
     self.bucket_name = config.find("s3.bucket_name")
     self.s3_client = boto3.client("s3", aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"), aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"), config=BotoConfig(signature_version='s3v4')
-        # endpoint_url=config.find("s3.endpoint_url"),
+    # endpoint_url=config.find("s3.endpoint_url"),
     )
-  
+
   def _send_to_storage(self, url, image_bytes, content_type):
     try:
       http_response = requests.put(
@@ -31,14 +34,14 @@ class StorageService:
         headers={'Content-Type': content_type}
       )
     except Exception as e:
-      logging.error(f"Error uploading image to presigned URL: {str(e)}")
+      self.logger.error(f"Error uploading image to presigned URL: {str(e)}")
       raise CustomHTTPException(
         status_code=HTTPStatus.INTERNAL_SERVER_ERROR.value,
         detail=f"Error uploading image to presigned URL: {str(e)}"
       )
 
     if http_response.status_code != HTTPStatus.OK.value:
-      logging.error(f"AWS PUT BUCKET RESPONSE: {http_response.__dict__}")
+      self.logger.error(f"AWS PUT BUCKET RESPONSE: {http_response.__dict__}")
       raise CustomHTTPException(
         status_code=http_response.status_code,
         detail=f"Error uploading image to presigned URL: {http_response.reason}"
@@ -48,13 +51,13 @@ class StorageService:
     try:
       http_response = requests.get(url=url)
     except Exception as e:
-      logging.error(f"Error retrieving image from presigned URL: {str(e)}")
+      self.logger.error(f"Error retrieving image from presigned URL: {str(e)}")
       raise CustomHTTPException(
         status_code=HTTPStatus.INTERNAL_SERVER_ERROR.value,
         detail=f"Error retrieving image from presigned URL: {str(e)}"
       )
     if http_response.status_code != HTTPStatus.OK.value:
-      logging.error(f"AWS GET BUCKET RESPONSE: {http_response.__dict__}")
+      self.logger.error(f"AWS GET BUCKET RESPONSE: {http_response.__dict__}")
       raise CustomHTTPException(
         status_code=http_response.status_code,
         detail=f"Error retrieving image from presigned URL: {http_response.reason}"
@@ -69,9 +72,9 @@ class StorageService:
     try:
       image_bytes, content_type, file_name = await self.image_validator.validate(request)
       upload_url = self.generate_presigned_upload_url(object_key=file_name, content_type=content_type)
-      logging.info(msg=f"PRESIGNED UPLOAD URL GENERATED: {upload_url}")
+      self.logger.info(msg=f"PRESIGNED UPLOAD URL GENERATED: {upload_url}")
       download_url = self.generate_presigned_download_url(object_key=file_name)
-      logging.info(msg=f"PRESIGNED DOWNLOAD URL GENERATED: {download_url}")
+      self.logger.info(msg=f"PRESIGNED DOWNLOAD URL GENERATED: {download_url}")
 
       self._send_to_storage(url=upload_url, image_bytes=image_bytes, content_type=content_type)
       await request.image.close()
@@ -92,7 +95,6 @@ class StorageService:
     finally:
       if request.image:
         await request.image.close()
-    
 
   def generate_presigned_upload_url(self, object_key: str, content_type: str = None, expiration: int = None) -> str:
     """
@@ -121,7 +123,7 @@ class StorageService:
       )
       return url
     except Exception as e:
-      logging.error(f"Error generating presigned upload URL: {str(e)}")
+      self.logger.error(f"Error generating presigned upload URL: {str(e)}")
       raise CustomHTTPException(
           status_code=HTTPStatus.INTERNAL_SERVER_ERROR.value,
           detail=f"Failed to generate presigned upload URL: {str(e)}"
@@ -141,7 +143,7 @@ class StorageService:
       )
       return url
     except Exception as e:
-      logging.error(f"Error generating presigned download URL: {str(e)}")
+      self.logger.error(f"Error generating presigned download URL: {str(e)}")
       raise CustomHTTPException(
         status_code=HTTPStatus.INTERNAL_SERVER_ERROR.value,
         detail=f"Failed to generate presigned download URL: {str(e)}"

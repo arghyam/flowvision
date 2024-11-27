@@ -1,6 +1,8 @@
+import logging
 from fastapi import FastAPI, Form
 from typing_extensions import Annotated
 
+from conf.logging import CustomLoggers
 from service.api.image_service import ImageService
 from service.api.storage_service import StorageService
 from conf.config import Config
@@ -11,10 +13,10 @@ from dotenv import load_dotenv
 load_dotenv()
 app = FastAPI()
 config = Config()
+CustomLoggers(config=config)
 flow_vision_service = ImageService(config=config)
 storage_service = StorageService(config=config)
 basepath = "/flowvision/v1"
-
 
 @app.get("/")
 async def root():
@@ -28,9 +30,11 @@ async def upload_image(request: Annotated[ImageUploadRequest, Form()]):
 
 @app.post(f"{basepath}/extractReading", response_model=ReadingExtractionResponse, response_model_exclude_none=True)
 async def extract_reading(request: ReadingExtractionRequest):
-    return flow_vision_service.extract_reading(request)
+    response = flow_vision_service.extract_reading(request)
+    return response
 
 
 @app.post(f"{basepath}/feedback", response_model=FeedbackResponse, response_model_exclude_none=True)
-async def extract_reading(request: FeedbackRequest):
-    return flow_vision_service.extract_reading(request)
+async def log_feedback(request: FeedbackRequest):
+    response = flow_vision_service.log_feedback(request)
+    return response

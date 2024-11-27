@@ -1,10 +1,9 @@
-
 from conf.config import Config
 import uvicorn
 
 if __name__ == "__main__":
-    
-  config= Config()
+
+  config = Config()
 
   app = config.find("app_server.app", "routes:app")
   port = config.find("app_server.port", 8000)
