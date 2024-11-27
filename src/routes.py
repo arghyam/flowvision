@@ -28,7 +28,7 @@ async def upload_image(request: Annotated[ImageUploadRequest, Form()]):
     return await storage_service.upload_image(request)
 
 
-@app.post(f"{basepath}/extractReading", response_model=ReadingExtractionResponse, response_model_exclude_none=True)
+@app.post(f"{basepath}/extract-reading", response_model=ReadingExtractionResponse, response_model_exclude_none=True)
 async def extract_reading(request: ReadingExtractionRequest):
     response = flow_vision_service.extract_reading(request)
     return response
