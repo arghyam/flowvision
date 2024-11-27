@@ -10,7 +10,7 @@ from service.vision.openai_vision_service import OpenAIVisionService
 from service.vision.qwen_vision_service import QwenVisionService
 from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, BaseResponse
 from conf.config import Config
-from PIL import Image
+from PIL import Image, ImageOps
 
 import requests
 from io import BytesIO
@@ -70,7 +70,8 @@ class ImageService:
 
     def preprocess_image(self, imageURL):
         image = Image.open(BytesIO(requests.get(imageURL).content))
-        resized_image = self.resize_image(image)
+        image = ImageOps.exif_transpose(image)
+        resized_image = self.resize_image(image, max_height=self.resizing_height, max_width=self.resizing_width)
         cropped_image = self.crop_image(resized_image)
         image_buffer = BytesIO()
         cropped_image.save(image_buffer, format="PNG")

@@ -16,25 +16,25 @@ class OpenAIVisionService(BaseVisionService):
         self.logger.info("Creating OpenAI client...")
         self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    def system_context(self):
-        context = """
-            You are an AI model tasked with extracting meter readings from images of bulk flow meters. The meter reading is displayed in a numeric format and indicates the total volume measured by the meter. The images provided will be clear and focused on the meter display. When processing each image, follow these steps:
-            1. Identify the numeric display on the meter
-            2. If the image is rotated, extract the meter readings by obtaining the right orientation
-            3. Extract the numeric value shown along with the leading zeros
-            4. If the last digit is of red colour, include the digit as a decimal point
-            5. Ensure accuracy by double-checking the numbers for clarity
-            6. Do not hallucinate.
-            Analyze the following image of a water meter and provide the exact reading value displayed on the meter based on the following rules
-            - If the provided image has a water meter, please respond with the exact meter reading.
-            - If the provided image is not of a water meter, return an error message \\"nometer\\".
-            - If the image is unclear or there are issues preventing an accurate reading, reply with the message \\"unclear\\".
-            Here are a few examples of the meter reading responses:
-            1. 0009873
-            2. 002353.4
-            3. 16040
-            """
-        return context
+    # def system_context(self):
+    #     context = """
+    #         You are an AI model tasked with extracting meter readings from images of bulk flow meters. The meter reading is displayed in a numeric format and indicates the total volume measured by the meter. The images provided will be clear and focused on the meter display. When processing each image, follow these steps:
+    #         1. Identify the numeric display on the meter
+    #         2. If the image is rotated, extract the meter readings by obtaining the right orientation
+    #         3. Extract the numeric value shown along with the leading zeros
+    #         4. If the last digit is of red colour, include the digit as a decimal point
+    #         5. Ensure accuracy by double-checking the numbers for clarity
+    #         6. Do not hallucinate.
+    #         Analyze the following image of a water meter and provide the exact reading value displayed on the meter based on the following rules
+    #         - If the provided image has a water meter, please respond with the exact meter reading.
+    #         - If the provided image is not of a water meter, return an error message \\"nometer\\".
+    #         - If the image is unclear or there are issues preventing an accurate reading, reply with the message \\"unclear\\".
+    #         Here are a few examples of the meter reading responses:
+    #         1. 0009873
+    #         2. 002353.4
+    #         3. 16040
+    #         """
+    #     return context
 
     # Will need to change to just use url
     def extract(self, image=None, image_bytes: bytes | None = None, download_url: str | None = None) -> str:
