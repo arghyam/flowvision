@@ -8,7 +8,7 @@ from uuid import uuid4, UUID
 from error.error import CustomHTTPException
 from service.vision.openai_vision_service import OpenAIVisionService
 from service.vision.qwen_vision_service import QwenVisionService
-from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, BaseResponse
+from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, FeedbackStatus, BaseResponse
 from conf.config import Config
 from PIL import Image, ImageOps
 
@@ -128,7 +128,7 @@ class ImageService:
                 ts=datetime.now(),
                 responseCode=response_code,
                 statusCode=status_code,
-                status=FeedbackResponseStatus.SUBMITTED
+                result=FeedbackStatus(status=FeedbackResponseStatus.SUBMITTED)
             )
         except Exception as e:
             response = self.handle_other_exceptions(error=e, id=request.id)

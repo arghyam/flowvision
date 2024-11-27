@@ -75,13 +75,16 @@ class ReadingExtractionResponse(BaseResponse):
 
 class FeedbackRequestData(BaseModel):
   accurate: bool
-  actualReading: Optional[float] = None
+  extracted: Optional[float] = None
+  actual: Optional[float] = None
 
 
 class FeedbackRequest(BaseRequest):
   correlationId: UUID
   data: FeedbackRequestData
 
+class FeedbackStatus(BaseModel):
+  status: FeedbackResponseStatus
 
 class FeedbackResponse(BaseResponse):
-  status: Optional[FeedbackResponseStatus] = None
+  result: Optional[FeedbackStatus] = None
