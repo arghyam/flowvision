@@ -4,4 +4,4 @@ __pycache__/
 data/
 .flake8
 .DS_Store
-ingestion/
+logs/
