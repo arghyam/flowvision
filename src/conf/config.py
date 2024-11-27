@@ -1,12 +1,14 @@
 import os
 import operator
 import yaml
+from dotenv import load_dotenv
 
 from functools import reduce
 
 
 class Config:
     def __init__(self):
+        load_dotenv()
         default_config_file_path = "src/conf/config.yaml"
         config_file = os.getenv("CONFIG_PATH") or default_config_file_path
         with open(config_file, "r") as f:
