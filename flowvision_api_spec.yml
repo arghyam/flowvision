@@ -42,10 +42,10 @@ paths:
                 statusCode: 200
                 result:
                   status: SUCCESS
+                  correlationId: cfde9907-55be-4820-b575-f28a476e2104
                   data:
                     meterReading: 24506.9
                     meterBrand: Belanto
-                    correlationId: cfde9907-55be-4820-b575-f28a476e2104
         '422':
           description: Validation Error
           content:
@@ -84,10 +84,9 @@ paths:
                   ts: 1729600269
                   correlationId: cfde9907-55be-4820-b575-f28a476e2104
                   data:
-                    meterReading:
-                      accurate: false
-                      extracted: 24509.6
-                      actual: 24406.9
+                    accurate: false
+                    extracted: 24509.6
+                    actual: 24406.9
         required: true
       responses:
         '200':
@@ -181,11 +180,17 @@ components:
       properties:
         status:
           $ref: '#/components/schemas/ExtractReadingStatus'
+        correlationId:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Correlationid
         data:
           $ref: '#/components/schemas/GetUploadUrlResultData'
       type: object
       required:
         - status
+        - correlationId
         - data
       title: ExtractReadingResultWrapper
     ExtractReadingStatus:
@@ -210,10 +215,14 @@ components:
           type: boolean
           title: Accurate
         extracted:
-          type: number
+          anyOf:
+            - type: number
+            - type: 'null'
           title: Extracted
         actual:
-          type: number
+          anyOf:
+            - type: number
+            - type: 'null'
           title: Actual
       type: object
       required:
@@ -221,14 +230,6 @@ components:
         - extracted
         - actual
       title: FeedbackData
-    FeedbackDataWrapper:
-      properties:
-        meterReading:
-          $ref: '#/components/schemas/FeedbackData'
-      type: object
-      required:
-        - meterReading
-      title: FeedbackDataWrapper
     FeedbackRequest:
       properties:
         id:
@@ -242,7 +243,7 @@ components:
           type: string
           title: Correlationid
         data:
-          $ref: '#/components/schemas/FeedbackDataWrapper'
+          $ref: '#/components/schemas/FeedbackData'
       type: object
       required:
         - id
