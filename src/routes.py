@@ -1,5 +1,5 @@
 import logging
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, BackgroundTasks
 from typing_extensions import Annotated
 
 from conf.logging import CustomLoggers
@@ -29,12 +29,12 @@ async def upload_image(request: Annotated[ImageUploadRequest, Form()]):
 
 
 @app.post(f"{basepath}/extract-reading", response_model=ReadingExtractionResponse, response_model_exclude_none=True)
-async def extract_reading(request: ReadingExtractionRequest):
-    response = flow_vision_service.extract_reading(request)
+async def extract_reading(request: ReadingExtractionRequest, background_tasks: BackgroundTasks):
+    response = flow_vision_service.extract_reading(request, background_tasks)
     return response
 
 
 @app.post(f"{basepath}/feedback", response_model=FeedbackResponse, response_model_exclude_none=True)
-async def log_feedback(request: FeedbackRequest):
-    response = flow_vision_service.log_feedback(request)
+async def log_feedback(request: FeedbackRequest, background_tasks: BackgroundTasks):
+    response = flow_vision_service.log_feedback(request, background_tasks)
     return response

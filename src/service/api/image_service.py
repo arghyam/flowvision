@@ -5,11 +5,13 @@ import traceback
 from datetime import datetime
 from uuid import uuid4, UUID
 
+from fastapi import BackgroundTasks
 from error.error import CustomHTTPException
 from service.vision.openai_vision_service import OpenAIVisionService
 from service.vision.qwen_vision_service import QwenVisionService
 from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, FeedbackStatus, BaseResponse
 from conf.config import Config
+from service.api.metadata_service import MetadataStore
 from PIL import Image, ImageOps
 
 import requests
@@ -22,10 +24,12 @@ class ImageService:
         self.feedback_logger = logging.getLogger(config.find("logs.feedback_request_logger.name"))
         self.extraction_logger = logging.getLogger(config.find("logs.extraction_request_logger.name"))
 
+        self.metadata_store = MetadataStore(config=config)
+
         vision_model: str = config.find("vision_model")
         if ('gpt-4o'.lower() == vision_model.lower()):
             self.model = "GPT"
-            self.vision_service = OpenAIVisionService()
+            self.vision_service = OpenAIVisionService(config=config)
         elif (vision_model.lower().__contains__('qwen')):
             self.vision_service = QwenVisionService()
             self.model = "QWEN"
@@ -75,13 +79,15 @@ class ImageService:
         cropped_image = self.crop_image(resized_image)
         image_buffer = BytesIO()
         cropped_image.save(image_buffer, format="PNG")
+        # cropped_image.save("image_used.png")
         return image_buffer.getvalue()
 
-    def extract_reading(self, request: ReadingExtractionRequest) -> ReadingExtractionResponse:
+    def extract_reading(self, request: ReadingExtractionRequest, background_tasks: BackgroundTasks) -> ReadingExtractionResponse:
         status_code = HTTPStatus.OK.value
         response_code = ResponseCode.OK
         request.id = request.id if request.id else uuid4()
         request.ts = request.ts if request.ts else datetime.now()
+        background_tasks.add_task(self.metadata_store.store_request, request)
 
         try:
             self.extraction_logger.info(str(request.model_dump_json()))
@@ -107,19 +113,21 @@ class ImageService:
                 statusCode=status_code,
                 result=result
             )
+            background_tasks.add_task(self.metadata_store.store_response, response)
         except CustomHTTPException as e:
             response = self.handle_custom_http_exception(error=e, id=request.id)
         except Exception as e:
             response = self.handle_other_exceptions(error=e, id=request.id)
-            
+  
         self.extraction_logger.info(str(response.model_dump_json()))
         return response
 
-    def log_feedback(self, request: FeedbackRequest):
+    def log_feedback(self, request: FeedbackRequest, background_tasks: BackgroundTasks):
         status_code = HTTPStatus.OK.value
         response_code = ResponseCode.OK
         request.id = request.id if request.id else uuid4()
         request.ts = request.ts if request.ts else datetime.now()
+        background_tasks.add_task(self.metadata_store.store_feedback, request)
 
         try:
             self.feedback_logger.info(str(request.model_dump_json()))
@@ -141,11 +149,11 @@ class ImageService:
         response_code = ResponseCode.ERROR
         error_code = error.error_code
         error_message = error.detail
-        self.base_logger.error("\nError type: %s\nRequest id: %s\nTrace: %s", error_message, traceback.format_exc(), id)
+        self.base_logger.error("\nError type: %s\nRequest id: %s\nTrace: %s", error_message, id, traceback.format_exc())
 
         error = Error(errorCode=error_code, errorMsg=error_message)
 
-        response = ReadingExtractionResponse(
+        response = BaseResponse(
             id=id,
             ts=datetime.now(),
             responseCode=response_code,
@@ -159,7 +167,7 @@ class ImageService:
         status_code = HTTPStatus.INTERNAL_SERVER_ERROR.value
         response_code = ResponseCode.ERROR
         error_message = str(error)
-        self.base_logger.error("\nError type: %s\nRequest id: %s\nTrace: %s", type(error).__name__, traceback.format_exc(), id)
+        self.base_logger.error("\nError type: %s\nRequest id: %s\nTrace: %s", type(error).__name__, id, traceback.format_exc())
 
         error = Error(errorCode=HTTPStatus.INTERNAL_SERVER_ERROR.value, errorMsg=error_message)
 
