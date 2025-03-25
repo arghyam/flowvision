@@ -45,8 +45,8 @@ class MetadataStore:
     def store_feedback(self, feedback: FeedbackRequest):
         try:
             to_store = {
-                "feedback": feedback.data.accurate,
-                "corrected_reading": feedback.data.actual,
+                "extracted_reading_accurate": feedback.data.accurate,
+                "actual_reading": feedback.data.actual,
                 "feedback_timestamp": feedback.ts.strftime(self.timestamp_format),
                 "correlation_id": str(feedback.correlationId)
             }

@@ -10,7 +10,7 @@ store_response = """
 """
 store_feedback = """
     UPDATE metadata_store
-    SET (feedback, corrected_reading, feedback_timestamp) = 
-    (:feedback, :corrected_reading, :feedback_timestamp)
+    SET (extracted_reading_accurate, actual_reading, feedback_timestamp) = 
+    (:extracted_reading_accurate, :actual_reading, :feedback_timestamp)
     WHERE correlation_id = (:correlation_id)::VARCHAR
 """

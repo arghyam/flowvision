@@ -11,11 +11,11 @@ app_server:
   app: "routes:app"
 
 # vision_model: "gpt-4o"
-vision_model: "Qwen/Qwen2-VL-2B-Instruct"
+vision_model: "Qwen/Qwen2-VL-7B-Instruct"
 gpu_type: "cuda"
 
 image_resizing:
-  width: 800
+  width: 1000
   height: 1000
 
 image_crop:
