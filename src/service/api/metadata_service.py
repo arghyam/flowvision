@@ -35,7 +35,13 @@ class MetadataStore:
                 "meter_reading": response.result.data.meterReading,
                 "correlation_id": str(response.result.correlationId),
                 "response_timestamp": response.ts.strftime(self.timestamp_format),
-                "request_id": str(response.id)
+                "request_id": str(response.id),
+                #New Response params
+                "quality_status": response.result.data.qualityStatus,
+                "quality_confidence": response.result.data.qualityConfidence,
+                "last_digit_color": response.result.data.lastDigitColor,
+                "color_confidence": response.result.data.colorConfidence,
+                "processing_time": response.result.data.processingTime
             }
             # print(f"STORING RESPONSE: {to_store}")
             self.database_service.upsert(queries.store_response, to_store)

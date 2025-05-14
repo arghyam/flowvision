@@ -19,3 +19,10 @@ CREATE TABLE flowvision_extraction_data (
 );
 
 CREATE INDEX idx_metadata_correlation_id ON flowvision_extraction_data(correlation_id);
+
+ALTER TABLE flowvision_extraction_data
+ADD COLUMN quality_status VARCHAR,
+ADD COLUMN quality_confidence FLOAT,
+ADD COLUMN last_digit_color VARCHAR,
+ADD COLUMN color_confidence FLOAT,
+ADD COLUMN processing_time FLOAT; 

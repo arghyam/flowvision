@@ -57,6 +57,12 @@ class ImageUploadResult(BaseModel):
 class ReadingExtractionResultData(BaseModel):
   meterReading: Optional[float | str] = None
   meterBrand: Optional[str] = None
+  processingTime: float
+  qualityStatus: str
+  qualityConfidence: float
+  lastDigitColor: str
+  colorConfidence: float
+
 
 
 class ReadingExtractionResult(BaseModel):
