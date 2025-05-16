@@ -9,22 +9,28 @@ import cv2
 from ultralytics import YOLO
 import yaml
 
-# Load configuration
-def load_config(config_path="src/conf/config.yaml"):
-    """
-    Load configuration from YAML file
-    
-    Args:
-        config_path: Path to the config YAML file
-        
-    Returns:
-        Configuration dictionary
-    """
-    with open(config_path, 'r') as file:
-        config = yaml.safe_load(file)
-    return config
+from conf.config import Config
+import logging
 
-CONFIG = load_config()
+# Load configuration
+# def load_config(config_path="src/conf/config.yaml"):
+#     """
+#     Load configuration from YAML file
+    
+#     Args:
+#         config_path: Path to the config YAML file
+        
+#     Returns:
+#         Configuration dictionary
+#     """
+#     with open(config_path, 'r') as file:
+#         config = yaml.safe_load(file)
+#     return config
+
+# CONFIG = load_config()
+CONFIG = Config().config
+base_logger = logging.getLogger(CONFIG['logs']['api_logger']['name'])
+extraction_logger = logging.getLogger(CONFIG['logs']['extraction_request_logger']['name'])
 
 #Load the Bulk Flow Meter FastAI classification model
 def load_bfm_classification(model_path=None):
@@ -39,7 +45,7 @@ def load_bfm_classification(model_path=None):
     """
     if model_path is None:
         model_path = CONFIG['models']['bfm_classification']
-        print("Model path: ", model_path)
+        base_logger.debug("Model path: %s", model_path)
     learn = load_learner(model_path)
     return learn
 
@@ -203,10 +209,10 @@ def test_image_prediction(image_path=None):
             
         # Run classification
         results = classify_bfm_image(image_path)
-        print(results)
+        extraction_logger.info(results)
             
     except Exception as e:
-        print(f"Error processing image: {str(e)}")
+        extraction_logger.error(f"Error processing image: {str(e)}")
 
 
 def sort_boxes_by_position(boxes, classes):
@@ -366,7 +372,7 @@ def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
                     digit_boxes.append(points)
                     digit_classes.append(class_id)
                     digit_confidences.append(confidence)
-                print("Original digit results: ", digit_classes)    
+                extraction_logger.debug("Original digit results: %s", digit_classes)
     
     # Step 4: Remove overlapping boxes
     if digit_boxes:
@@ -454,12 +460,12 @@ if __name__ == "__main__":
     
     # First classify the image
     classification_result = classify_bfm_image(test_image_path)
-    print("Classification result:", classification_result)
+    extraction_logger.info("Classification result: %s", classification_result)
     
     # Only proceed with digit detection if image is classified as "Good"
     if classification_result['prediction'].lower() == 'good':
         meter_reading = direct_recognize_meter_reading(test_image_path)
-        print("Detected meter reading:", meter_reading)
+        extraction_logger.info("Detected meter reading: %s", meter_reading)
     else:
-        print("Image classified as bad quality - skipping digit detection")
+        extraction_logger.info("Image classified as bad quality - skipping digit detection")
 

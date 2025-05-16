@@ -40,19 +40,19 @@ class ImageService:
         self.metadata_store = MetadataStore(config=config)
 
         vision_model: str = config.find("vision_model")
-        print("Vision model: ", vision_model)
-        if vision_model.lower() == 'inceptionv3':
-            self.vision_service = InceptionV3VisionService(config=config)
+        self.base_logger.info("Vision model: %s", vision_model)
 
-        # vision_model: str = config.find("vision_model")
-        # if ('gpt-4o'.lower() == vision_model.lower()):
-        #     self.model = "GPT"
-        #     self.vision_service = OpenAIVisionService(config=config)
-        # elif (vision_model.lower().__contains__('qwen')):
-        #     self.vision_service = QwenVisionService()
-        #     self.model = "QWEN"
-        # else:
-        #     raise Exception("Configured model not available for service...")
+        if ('gpt-4o'.lower() == vision_model.lower()):
+            self.model = "GPT"
+            self.vision_service = OpenAIVisionService(config=config)
+        elif (vision_model.lower().__contains__('qwen')):
+            self.vision_service = QwenVisionService()
+            self.model = "QWEN"
+        elif vision_model.lower() == 'inceptionv3':
+            self.vision_service = InceptionV3VisionService(config=config)
+            self.model = "INCEPTIONV3"
+        else:
+            raise Exception("Configured model not available for service...")
 
         self.resizing_width = config.find("image_resizing.width")
         self.resizing_height = config.find("image_resizing.height")
