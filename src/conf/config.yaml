@@ -13,7 +13,7 @@ app_server:
 # vision_model: "gpt-4o"
 # vision_model: "Qwen/Qwen2-VL-7B-Instruct"
 vision_model: "InceptionV3"
-gpu_type: "mps"
+gpu_type: "cuda"
 
 image_resizing:
   width: 1000
@@ -40,15 +40,15 @@ database:
   host: localhost
   port: 5432
   dbname: "flowvision"
-  username: flowvision_user
-  password: password
+  username: postgres
+  password: postgres
 
 
 # Model paths
 models:
-  bfm_classification: "/path/to/src/models/bfm_fastai"
-  individual_numbers: "/path/to/src/models/individual_number_recognition_yolo11l.pt"
-  color_classification: "/path/to/src/models/color_classification_fastai"
+  bfm_classification: "/Users/apple/Documents/projects/arghyam/flowvision/src/models/bfm_fastai"
+  individual_numbers: "/Users/apple/Documents/projects/arghyam/flowvision/src/models/individual_number_recognition_yolo11l.pt"
+  color_classification: "/Users/apple/Documents/projects/arghyam/flowvision/src/models/color_classification_fastai"
 
 # Image processing parameters
 image_enhancement:
