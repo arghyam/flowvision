@@ -9,6 +9,7 @@ from fastapi import BackgroundTasks
 from error.error import CustomHTTPException
 from service.vision.openai_vision_service import OpenAIVisionService
 from service.vision.qwen_vision_service import QwenVisionService
+from service.vision.inception_v3_service import InceptionV3VisionService
 from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, FeedbackStatus, BaseResponse
 from conf.config import Config
 from service.api.metadata_service import MetadataStore
@@ -16,6 +17,18 @@ from PIL import Image, ImageOps
 
 import requests
 from io import BytesIO
+import numpy as np
+import cv2
+
+from service.vision.inference_utils import (
+    load_bfm_classification,
+    load_individual_numbers_model,
+    load_color_classification_model,
+    classify_bfm_image,
+    direct_recognize_meter_reading,
+    classify_color_image,
+    extract_digit_image
+)
 
 
 class ImageService:
@@ -27,12 +40,17 @@ class ImageService:
         self.metadata_store = MetadataStore(config=config)
 
         vision_model: str = config.find("vision_model")
+        self.base_logger.info("Vision model: %s", vision_model)
+
         if ('gpt-4o'.lower() == vision_model.lower()):
             self.model = "GPT"
             self.vision_service = OpenAIVisionService(config=config)
         elif (vision_model.lower().__contains__('qwen')):
             self.vision_service = QwenVisionService()
             self.model = "QWEN"
+        elif vision_model.lower() == 'inceptionv3':
+            self.vision_service = InceptionV3VisionService(config=config)
+            self.model = "INCEPTIONV3"
         else:
             raise Exception("Configured model not available for service...")
 
@@ -90,21 +108,67 @@ class ImageService:
         background_tasks.add_task(self.metadata_store.store_request, request)
 
         try:
+            start_time = datetime.now()
             self.extraction_logger.info(str(request.model_dump_json()))
             cropped_image = self.preprocess_image(request.imageURL)
-            meter_reading = self.vision_service.extract(image_bytes=cropped_image)
 
-            if 'nometer' in meter_reading.lower():
+            # Get quality status from BFM classification
+            quality_result = classify_bfm_image(cropped_image)
+            quality_status = quality_result['prediction'].lower()
+            quality_confidence = quality_result['confidence']
+
+            # Only proceed with meter reading if quality is good
+            if quality_status == 'good':
+                # Detect digits and get their bounding boxes
+                meter_reading_result = self.vision_service.extract(image_bytes=cropped_image)
+                # Expecting: meter_reading, sorted_boxes, sorted_classes
+                if isinstance(meter_reading_result, tuple) and len(meter_reading_result) >= 3:
+                    meter_reading, sorted_boxes, sorted_classes = meter_reading_result
+                else:
+                    meter_reading = meter_reading_result
+                    sorted_boxes, sorted_classes = [], []
+
+                # Convert tuple to string if necessary
+                meter_reading_str = str(meter_reading[0]) if isinstance(meter_reading, tuple) else str(meter_reading)
+            else:
+                meter_reading_str = "Image quality too poor for recognition"
+                sorted_boxes = []
+                meter_reading_status = Status.UNCLEAR
+
+            processing_time = (datetime.now() - start_time).total_seconds()
+
+            # Default color result
+            color_result = {"prediction": "unknown", "confidence": 0.0}
+
+            # Only classify color if digits were detected
+            if sorted_boxes and len(sorted_boxes) > 0:
+                image_array = np.frombuffer(cropped_image, np.uint8)
+                image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+                last_box = sorted_boxes[-1]
+                last_digit_image = extract_digit_image(image, last_box)
+                color_result = classify_color_image(last_digit_image)
+
+            last_digit_color = color_result['prediction'].lower()
+            color_confidence = color_result['confidence']
+
+            if 'nometer' in meter_reading_str.lower():
                 meter_reading_status = Status.NOMETER
-            elif 'unclear' in meter_reading.lower():
+            elif 'unclear' in meter_reading_str.lower() or quality_status == 'bad':
                 meter_reading_status = Status.UNCLEAR
             else:
                 meter_reading_status = Status.SUCCESS
-
+             
             result = ReadingExtractionResult(
                 status=meter_reading_status,
                 correlationId=uuid4(),
-                data=ReadingExtractionResultData(meterReading=meter_reading)
+                data=ReadingExtractionResultData(
+                    meterReading=meter_reading_str,
+                    processingTime=processing_time,
+                    qualityStatus=quality_status,
+                    qualityConfidence=quality_confidence,
+                    lastDigitColor=last_digit_color,
+                    colorConfidence=color_confidence
+                )
             )
             response = ReadingExtractionResponse(
                 id=request.id,
