@@ -5,7 +5,7 @@ class BaseVisionService(ABC):
     @abstractmethod
     def extract(image=None, image_bytes: bytes | None = None, download_url: str | None = None):
         pass
-
+    
     def system_context(self):
         context ="""
         You are an expert tasked with extracting meter readings from images of bulk flow meters. The meter reading is displayed in a numeric format and indicates the total volume measured by the meter. The images provided will be clear and focused on the meter display. When processing each image, follow these steps:
