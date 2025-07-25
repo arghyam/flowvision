@@ -15,6 +15,7 @@ class DatabaseService:
         )
         self.engine = db.create_engine(url_object)
 
+
     def get_connection(self) -> db.Connection:
         return self.engine.connect()
 
