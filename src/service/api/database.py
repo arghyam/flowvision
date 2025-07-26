@@ -7,11 +7,11 @@ class DatabaseService:
     def __init__(self):
         url_object = db.URL.create(
             drivername="postgresql+psycopg2",
-            username=os.environ.get("DB_USERNAME", "postgres"),
-            password=os.environ.get("DB_PASSWORD", "postgres"),
-            host=os.environ.get("DB_HOST", "localhost"),
-            port=int(os.environ.get("DB_PORT", 5432)),
-            database=os.environ.get("DB_NAME", "flowvision"),
+            username=os.environ.get("FLOWVISION_DB_USERNAME", "postgres"),
+            password=os.environ.get("FLOWVISION_DB_PASSWORD", "postgres"),
+            host=os.environ.get("FLOWVISION_DB_HOST", "localhost"),
+            port=int(os.environ.get("FLOWVISION_DB_PORT", 5432)),
+            database=os.environ.get("FLOWVISION_DB_NAME", "flowvision"),
         )
         self.engine = db.create_engine(url_object)
 
