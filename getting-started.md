@@ -2,7 +2,7 @@
 
 This document provides step-by-step instructions for setting up, configuring, and deploying the FlowVision AI-powered meter reading extraction system. It covers installation of dependencies, environment configuration, service deployment, and initial verification.
 
-For detailed information about the system architecture and component interactions, see [Architecture Overview](https://deepwiki.com/arghyam/flowvision/1.2-architecture-overview). For complete API documentation and endpoint details, see [API Reference](https://deepwiki.com/arghyam/flowvision/2-api-reference).
+For detailed information about the system architecture and component interactions, see [Architecture Overview](architecture-overview.md). For complete API documentation and endpoint details, see [API Reference](api-reference.md).
 
 ### Prerequisites <a href="#prerequisites" id="prerequisites"></a>
 
@@ -29,14 +29,6 @@ FlowVision requires the following system components and external services:
 * **OpenAI API**: Required for GPT-4o vision service (if selected in config)
 * **AWS S3**: For image storage with presigned URL generation
 * **LocalStack** (development): Local S3-compatible service for testing
-
-Sources:&#x20;
-
-[requirements.txt1-30](https://github.com/arghyam/flowvision/blob/78c1136f/requirements.txt#L1-L30)&#x20;
-
-[src/conf/config.yaml5-7](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L5-L7)&#x20;
-
-[src/conf/config.yaml39-44](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L39-L44)
 
 ### Installation <a href="#installation" id="installation"></a>
 
@@ -83,10 +75,6 @@ Key dependencies installed include:
 | Image Processing | `opencv-python==4.11.0.86`, `pillow==11.1.0`                          | Image preprocessing and enhancement |
 | Rate Limiting    | `redis==6.0.0`, `fastapi-limiter==0.1.6`                              | Request throttling                  |
 
-Sources:&#x20;
-
-[requirements.txt1-30](https://github.com/arghyam/flowvision/blob/78c1136f/requirements.txt#L1-L30)
-
 ### Configuration <a href="#configuration" id="configuration"></a>
 
 #### Configuration Structure <a href="#configuration-structure" id="configuration-structure"></a>
@@ -94,8 +82,6 @@ Sources:&#x20;
 <figure><img src=".gitbook/assets/Screenshot 2025-07-28 at 12.16.04 PM.png" alt=""><figcaption></figcaption></figure>
 
 **Configuration Structure with YAML Keys**
-
-Sources: [src/conf/config.yaml1-65](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L1-L65)
 
 #### Step 3: Configure config.yaml <a href="#step-3-configure-configyaml" id="step-3-configure-configyaml"></a>
 
@@ -152,16 +138,6 @@ models:
     color_classification: "/path/to/src/models/color_classification_fastai"
 ```
 
-Sources:&#x20;
-
-[src/conf/config.yaml13-15](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L13-L15)
-
-[src/conf/config.yaml39-44](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L39-L44)
-
-[src/conf/config.yaml5-7](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L5-L7)
-
-[src/conf/config.yaml48-51](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L48-L51)
-
 #### Step 4: Environment Variables <a href="#step-4-environment-variables" id="step-4-environment-variables"></a>
 
 Create a `.env` file in the project root with the following variables:
@@ -216,8 +192,6 @@ docker run -d -p 4566:4566 localstack/localstack
 aws --endpoint-url=http://localhost:4566 s3 mb s3://flowvision-test-bucket
 ```
 
-Sources: [src/conf/config.yaml5-7](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L5-L7) [src/conf/config.yaml39-44](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L39-L44)
-
 #### Step 6: Launch Application <a href="#step-6-launch-application" id="step-6-launch-application"></a>
 
 Start the FastAPI server using the configured ASGI application:
@@ -231,8 +205,6 @@ The application will start on the configured port (default: 8000) with the follo
 * `POST /flowvision/v1/uploadImage` - Image upload with S3 storage
 * `POST /flowvision/v1/extract-reading` - Meter reading extraction
 * `POST /flowvision/v1/feedback` - User feedback logging
-
-Sources: [readme.md6-9](https://github.com/arghyam/flowvision/blob/78c1136f/readme.md#L6-L9) [src/conf/config.yaml9-11](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L9-L11)
 
 ### Verification <a href="#verification" id="verification"></a>
 
@@ -274,12 +246,6 @@ print(f'Test image: {config.test.sample_image}')
 "
 ```
 
-Sources:&#x20;
-
-[src/conf/config.yaml28-37](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L28-L37)&#x20;
-
-[src/conf/config.yaml63-64](https://github.com/arghyam/flowvision/blob/78c1136f/src/conf/config.yaml#L63-L64)
-
 ### Next Steps <a href="#next-steps" id="next-steps"></a>
 
 After successful deployment:
@@ -290,7 +256,3 @@ After successful deployment:
 4. **Model Training**: If using custom models, see [Machine Learning Models](https://deepwiki.com/arghyam/flowvision/6-machine-learning-models) for training procedures
 
 For troubleshooting deployment issues, consult [Error Handling](https://deepwiki.com/arghyam/flowvision/7.3-error-handling) for common error codes and resolution steps.
-
-Sources:&#x20;
-
-[src/error/error.py15-18](https://github.com/arghyam/flowvision/blob/78c1136f/src/error/error.py#L15-L18)

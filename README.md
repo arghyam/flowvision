@@ -4,7 +4,7 @@
 
 FlowVision is an AI-powered meter reading extraction service that processes water meter images to automatically extract numeric readings. The system provides a REST API for image upload, reading extraction, and feedback collection, supporting multiple AI vision backends for flexible deployment scenarios.
 
-This document provides a high-level overview of the FlowVision system architecture, core components, and processing workflow. For detailed API documentation, see [API Reference](https://deepwiki.com/arghyam/flowvision/2-api-reference). For in-depth coverage of individual services, see [Core Services](https://deepwiki.com/arghyam/flowvision/3-core-services). For configuration details, see [Configuration](https://deepwiki.com/arghyam/flowvision/4-configuration).
+This document provides a high-level overview of the FlowVision system architecture, core components, and processing workflow. For detailed API documentation, see [API Reference](api-reference.md).
 
 ### System Architecture <a href="#system-architecture" id="system-architecture"></a>
 
@@ -38,8 +38,6 @@ The `ImageService` class serves as the central orchestrator for all meter readin
 | **Reading Extraction**     | Orchestrates the complete extraction pipeline                  | `extract_reading()`                                           |
 | **Feedback Logging**       | Handles user feedback for model improvement                    | `log_feedback()`                                              |
 | **Error Handling**         | Manages custom and system exceptions                           | `handle_custom_http_exception()`, `handle_other_exceptions()` |
-
-Sources: [src/service/api/image\_service.py34-247](https://github.com/arghyam/flowvision/blob/78c1136f/src/service/api/image_service.py#L34-L247)
 
 #### Vision Service Strategy <a href="#vision-service-strategy" id="vision-service-strategy"></a>
 
