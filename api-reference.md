@@ -12,15 +12,11 @@ The FlowVision API is built using FastAPI and exposes a RESTful interface at the
 
 <figure><img src=".gitbook/assets/Screenshot 2025-07-28 at 2.40.30 PM.png" alt=""><figcaption></figcaption></figure>
 
-**Sources:** [src/routes.py1-41](https://github.com/arghyam/flowvision/blob/78c1136f/src/routes.py#L1-L41)
 
 #### Request/Response Flow <a href="#requestresponse-flow" id="requestresponse-flow"></a>
 
 <figure><img src=".gitbook/assets/Screenshot 2025-07-28 at 2.40.59 PM.png" alt=""><figcaption></figcaption></figure>
 
-**Sources:** [src/routes.py26-40](https://github.com/arghyam/flowvision/blob/78c1136f/src/routes.py#L26-L40)&#x20;
-
-[flowvision\_api\_spec.yml11-122](https://github.com/arghyam/flowvision/blob/78c1136f/flowvision_api_spec.yml#L11-L122)
 
 ### Endpoint Specifications <a href="#endpoint-specifications" id="endpoint-specifications"></a>
 
@@ -38,8 +34,6 @@ The FlowVision API is built using FastAPI and exposes a RESTful interface at the
 }
 ```
 
-**Sources:** [src/routes.py21-23](https://github.com/arghyam/flowvision/blob/78c1136f/src/routes.py#L21-L23)
-
 #### Image Upload Endpoint <a href="#image-upload-endpoint" id="image-upload-endpoint"></a>
 
 | Method | Path                         | Description                              |
@@ -50,7 +44,6 @@ The FlowVision API is built using FastAPI and exposes a RESTful interface at the
 
 **Response:** Returns S3 presigned URL with 60-second expiry for subsequent extraction requests.
 
-**Sources:** [src/routes.py26-28](https://github.com/arghyam/flowvision/blob/78c1136f/src/routes.py#L26-L28)
 
 #### Reading Extraction Endpoint <a href="#reading-extraction-endpoint" id="reading-extraction-endpoint"></a>
 
@@ -75,7 +68,6 @@ The FlowVision API is built using FastAPI and exposes a RESTful interface at the
 2. Triggers `ImageService.extract_reading()` with background task scheduling
 3. Returns structured response with correlation ID for feedback
 
-**Sources:** [src/routes.py31-34](https://github.com/arghyam/flowvision/blob/78c1136f/src/routes.py#L31-L34) [flowvision\_api\_spec.yml11-66](https://github.com/arghyam/flowvision/blob/78c1136f/flowvision_api_spec.yml#L11-L66)
 
 #### Feedback Endpoint <a href="#feedback-endpoint" id="feedback-endpoint"></a>
 
@@ -94,7 +86,6 @@ The FlowVision API is built using FastAPI and exposes a RESTful interface at the
 
 **Response Model:** `FeedbackResponse` with excluded null fields
 
-**Sources:** [src/routes.py37-40](https://github.com/arghyam/flowvision/blob/78c1136f/src/routes.py#L37-L40) [flowvision\_api\_spec.yml67-122](https://github.com/arghyam/flowvision/blob/78c1136f/flowvision_api_spec.yml#L67-L122)
 
 ### Response Status Patterns <a href="#response-status-patterns" id="response-status-patterns"></a>
 
@@ -148,7 +139,6 @@ The `ExtractReadingStatus` enum defines possible extraction outcomes:
 | `UNCLEAR` | Image quality too poor for reading |
 | `INVALID` | Invalid image or processing error  |
 
-**Sources:** [flowvision\_api\_spec.yml196-203](https://github.com/arghyam/flowvision/blob/78c1136f/flowvision_api_spec.yml#L196-L203)
 
 ### Background Task Processing <a href="#background-task-processing" id="background-task-processing"></a>
 
@@ -160,13 +150,6 @@ The API uses FastAPI's `BackgroundTasks` for asynchronous operations:
 
 This pattern ensures API responses return quickly while maintaining comprehensive audit trails.
 
-**Sources:**&#x20;
-
-[src/routes.py2](https://github.com/arghyam/flowvision/blob/78c1136f/src/routes.py#L2-L2)&#x20;
-
-[src/routes.py32](https://github.com/arghyam/flowvision/blob/78c1136f/src/routes.py#L32-L32)&#x20;
-
-[src/routes.py38](https://github.com/arghyam/flowvision/blob/78c1136f/src/routes.py#L38-L38)
 
 ### Service Dependencies <a href="#service-dependencies" id="service-dependencies"></a>
 
@@ -178,4 +161,3 @@ The FastAPI application initializes core services at startup:
 | `StorageService` | Manages S3 image uploads and presigned URLs    | Configured via AWS credentials             |
 | `Config`         | Centralized configuration management           | Loads from `config.yaml` and environment   |
 
-**Sources:** [src/routes.py15-18](https://github.com/arghyam/flowvision/blob/78c1136f/src/routes.py#L15-L18)
