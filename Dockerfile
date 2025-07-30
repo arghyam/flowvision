@@ -1,7 +1,9 @@
-# Use Python 3.12 slim as base image
+# syntax=docker/dockerfile:1.4
+
+# Base image
 FROM python:3.12-slim AS builder
 
-# Set environment variables
+# Set virtual environment path
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
@@ -19,20 +21,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create and activate virtual environment
 RUN python -m venv $VIRTUAL_ENV
 
-# Set working directory
+# Create app directory and set it as working directory
 WORKDIR /app
 
-# Copy requirements and install them
+# Copy requirements first (for caching)
 COPY requirements.txt .
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
 
-# Copy entire project
+# Install Python dependencies
+RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# Copy the entire project
 COPY . .
+
+# Create a non-root user
+RUN adduser --disabled-password --gecos '' appuser && \
+    chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
 
 # Expose port
 EXPOSE 8000
 
-# Default command
+# Command to run the application
 CMD ["python", "src/run.py"]
-
