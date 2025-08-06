@@ -1,0 +1,18 @@
+# Model paths
+models:
+  bfm_classification: "models/bfm_fastai"
+  individual_numbers: "models/individual_number_recognition_yolo11l.pt"
+  color_classification: "models/color_classification_fastai"
+
+# Image processing parameters
+image_enhancement:
+  clahe_clip_limit: 2.0
+  clahe_tile_grid_size: [8, 8]
+  sharpening_alpha: 1.5
+  sharpening_beta: -0.5
+  color_boost_alpha: 1.1
+  color_boost_beta: 10
+
+# Test image paths
+test:
+  sample_image: "dataset/data_cleaned/classification_data/Good/20240909121001_C2268402_F20918_M7711086.png"

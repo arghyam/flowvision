@@ -10,7 +10,7 @@ import traceback
 class MetadataStore:
     def __init__(self, config: Config):
         self.config = config
-        self.database_service = DatabaseService(config=config)
+        self.database_service = DatabaseService()
         self.timestamp_format = "%m-%d-%Y, %H:%M:%S"
         self.base_logger = logging.getLogger(config.find("logs.api_logger.name"))
 

@@ -1,19 +1,20 @@
+import os
 import sqlalchemy as db
 from sqlalchemy import text
 from conf.config import Config
 
 class DatabaseService:
-    def __init__(self, config: Config):
-        self.config = Config
+    def __init__(self):
         url_object = db.URL.create(
             drivername="postgresql+psycopg2",
-            username=config.find("database.username"),
-            password=config.find("database.password"),
-            host=config.find("database.host"),
-            port=config.find("database.port"),
-            database=config.find("database.dbname"),
+            username=os.environ.get("FLOWVISION_DB_USERNAME", "postgres"),
+            password=os.environ.get("FLOWVISION_DB_PASSWORD", "postgres"),
+            host=os.environ.get("FLOWVISION_DB_HOST", "localhost"),
+            port=int(os.environ.get("FLOWVISION_DB_PORT", 5432)),
+            database=os.environ.get("FLOWVISION_DB_NAME", "flowvision"),
         )
         self.engine = db.create_engine(url_object)
+
 
     def get_connection(self) -> db.Connection:
         return self.engine.connect()
