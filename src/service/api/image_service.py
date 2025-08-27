@@ -10,12 +10,26 @@ from error.error import CustomHTTPException
 from service.vision.openai_vision_service import OpenAIVisionService
 from service.vision.qwen_vision_service import QwenVisionService
 from service.vision.inception_v3_service import InceptionV3VisionService
-from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, FeedbackStatus, BaseResponse
+from models.models import (
+    Error,
+    Status,
+    ReadingExtractionRequest,
+    ReadingExtractionResponse,
+    ReadingExtractionResult,
+    ReadingExtractionResultData,
+    ResponseCode,
+    FeedbackRequest,
+    FeedbackResponseStatus,
+    FeedbackResponse,
+    FeedbackStatus,
+    BaseResponse,
+)
 from conf.config import Config
 from service.api.metadata_service import MetadataStore
 from PIL import Image, ImageOps
 
-import requests
+import asyncio
+import httpx
 from io import BytesIO
 import numpy as np
 import cv2
@@ -90,17 +104,27 @@ class ImageService:
         cropped_image = image.crop((left, top, right, bottom))
         return cropped_image
 
-    def preprocess_image(self, imageURL):
-        image = Image.open(BytesIO(requests.get(imageURL).content))
-        image = ImageOps.exif_transpose(image)
-        resized_image = self.resize_image(image, max_height=self.resizing_height, max_width=self.resizing_width)
-        cropped_image = self.crop_image(resized_image)
+    async def preprocess_image(self, imageURL):
+        async with httpx.AsyncClient() as client:
+            response = await client.get(imageURL)
+            response.raise_for_status()
+
+        image = await asyncio.to_thread(Image.open, BytesIO(response.content))
+        image = await asyncio.to_thread(ImageOps.exif_transpose, image)
+        resized_image = await asyncio.to_thread(
+            self.resize_image,
+            image,
+            max_height=self.resizing_height,
+            max_width=self.resizing_width,
+        )
+        cropped_image = await asyncio.to_thread(self.crop_image, resized_image)
         image_buffer = BytesIO()
-        cropped_image.save(image_buffer, format="PNG")
-        # cropped_image.save("image_used.png")
+        await asyncio.to_thread(cropped_image.save, image_buffer, format="PNG")
         return image_buffer.getvalue()
 
-    def extract_reading(self, request: ReadingExtractionRequest, background_tasks: BackgroundTasks) -> ReadingExtractionResponse:
+    async def extract_reading(
+        self, request: ReadingExtractionRequest, background_tasks: BackgroundTasks
+    ) -> ReadingExtractionResponse:
         status_code = HTTPStatus.OK.value
         response_code = ResponseCode.OK
         request.id = request.id if request.id else uuid4()
@@ -110,43 +134,40 @@ class ImageService:
         try:
             start_time = datetime.now()
             self.extraction_logger.info(str(request.model_dump_json()))
-            cropped_image = self.preprocess_image(request.imageURL)
+            cropped_image = await self.preprocess_image(request.imageURL)
 
-            # Get quality status from BFM classification
-            quality_result = classify_bfm_image(cropped_image)
-            quality_status = quality_result['prediction'].lower()
-            quality_confidence = quality_result['confidence']
+            quality_result = await asyncio.to_thread(classify_bfm_image, cropped_image)
+            quality_status = quality_result["prediction"].lower()
+            quality_confidence = quality_result["confidence"]
 
-            # Only proceed with meter reading if quality is good
-            if quality_status == 'good':
-                # Detect digits and get their bounding boxes
-                meter_reading_result = self.vision_service.extract(image_bytes=cropped_image)
-                # Expecting: meter_reading, sorted_boxes, sorted_classes
+            if quality_status == "good":
+                meter_reading_result = await asyncio.to_thread(
+                    self.vision_service.extract, image_bytes=cropped_image
+                )
                 if isinstance(meter_reading_result, tuple) and len(meter_reading_result) >= 3:
                     meter_reading, sorted_boxes, sorted_classes = meter_reading_result
                 else:
                     meter_reading = meter_reading_result
                     sorted_boxes, sorted_classes = [], []
 
-                # Convert tuple to string if necessary
-                meter_reading_str = str(meter_reading[0]) if isinstance(meter_reading, tuple) else str(meter_reading)
+                meter_reading_str = (
+                    str(meter_reading[0]) if isinstance(meter_reading, tuple) else str(meter_reading)
+                )
             else:
                 meter_reading_str = "Image quality too poor for recognition"
                 sorted_boxes = []
-                meter_reading_status = Status.UNCLEAR
 
             processing_time = (datetime.now() - start_time).total_seconds()
 
             # Default color result
             color_result = {"prediction": "unknown", "confidence": 0.0}
 
-            # Only classify color if digits were detected
             if sorted_boxes and len(sorted_boxes) > 0:
-                image_array = np.frombuffer(cropped_image, np.uint8)
-                image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+                image_array = await asyncio.to_thread(np.frombuffer, cropped_image, np.uint8)
+                image = await asyncio.to_thread(cv2.imdecode, image_array, cv2.IMREAD_COLOR)
                 last_box = sorted_boxes[-1]
-                last_digit_image = extract_digit_image(image, last_box)
-                color_result = classify_color_image(last_digit_image)
+                last_digit_image = await asyncio.to_thread(extract_digit_image, image, last_box)
+                color_result = await asyncio.to_thread(classify_color_image, last_digit_image)
 
             last_digit_color = color_result['prediction'].lower()
             color_confidence = color_result['confidence']
