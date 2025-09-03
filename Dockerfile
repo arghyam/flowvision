@@ -1,47 +1,57 @@
-# syntax=docker/dockerfile:1.4
-
-# Base image
+# =========================
+# Builder Stage
+# =========================
 FROM python:3.12-slim AS builder
 
-# Set virtual environment path
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgl1 \
+    libglx-mesa0 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender-dev \
+    libxrender1 \
     git \
-    && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
-# Create and activate virtual environment
 RUN python -m venv $VIRTUAL_ENV
 
-# Create app directory and set it as working directory
 WORKDIR /app
 
-# Copy requirements first (for caching)
 COPY requirements.txt .
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir gunicorn uvicorn
 
-# Install Python dependencies
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# =========================
+# Final Runtime Stage
+# =========================
+FROM python:3.12-slim
 
-# Copy the entire project
-COPY . .
+# OpenCV runtime deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglx-mesa0 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+ && rm -rf /var/lib/apt/lists/*
 
-# Create a non-root user
-RUN adduser --disabled-password --gecos '' appuser && \
-    chown -R appuser:appuser /app
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Switch to non-root user
-USER appuser
+ENV PYTHONPATH=/app/src
 
-# Expose port
+RUN useradd -m flowuser
+USER flowuser
+
+WORKDIR /app
+COPY --chown=flowuser:flowuser . .
+
 EXPOSE 8000
 
-# Command to run the application
-CMD ["python", "src/run.py"]
+CMD ["sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker routes:app --bind 0.0.0.0:8000 --workers 2 --threads 2 --preload --timeout 120"]
