@@ -30,7 +30,7 @@ async def upload_image(request: Annotated[ImageUploadRequest, Form()]):
 
 @app.post(f"{basepath}/extract-reading", response_model=ReadingExtractionResponse, response_model_exclude_none=True)
 async def extract_reading(request: ReadingExtractionRequest, background_tasks: BackgroundTasks):
-    response = flow_vision_service.extract_reading(request, background_tasks)
+    response = await flow_vision_service.extract_reading(request, background_tasks)
     return response
 
 

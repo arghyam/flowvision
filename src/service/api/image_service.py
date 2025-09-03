@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from http import HTTPStatus
 
 import traceback
@@ -100,7 +101,7 @@ class ImageService:
         # cropped_image.save("image_used.png")
         return image_buffer.getvalue()
 
-    def extract_reading(self, request: ReadingExtractionRequest, background_tasks: BackgroundTasks) -> ReadingExtractionResponse:
+    async def extract_reading(self, request: ReadingExtractionRequest, background_tasks: BackgroundTasks) -> ReadingExtractionResponse:
         status_code = HTTPStatus.OK.value
         response_code = ResponseCode.OK
         request.id = request.id if request.id else uuid4()
@@ -113,14 +114,17 @@ class ImageService:
             cropped_image = self.preprocess_image(request.imageURL)
 
             # Get quality status from BFM classification
-            quality_result = classify_bfm_image(cropped_image)
+            quality_result = await asyncio.to_thread(classify_bfm_image, cropped_image)
             quality_status = quality_result['prediction'].lower()
             quality_confidence = quality_result['confidence']
 
             # Only proceed with meter reading if quality is good
             if quality_status == 'good':
                 # Detect digits and get their bounding boxes
-                meter_reading_result = self.vision_service.extract(image_bytes=cropped_image)
+                inference_start = datetime.now()
+                meter_reading_result = await asyncio.to_thread(self.vision_service.extract, image_bytes=cropped_image)
+                inference_time = (datetime.now() - inference_start).total_seconds()
+                self.extraction_logger.debug("Vision model inference took %.4f seconds", inference_time)
                 # Expecting: meter_reading, sorted_boxes, sorted_classes
                 if isinstance(meter_reading_result, tuple) and len(meter_reading_result) >= 3:
                     meter_reading, sorted_boxes, sorted_classes = meter_reading_result
@@ -142,11 +146,14 @@ class ImageService:
 
             # Only classify color if digits were detected
             if sorted_boxes and len(sorted_boxes) > 0:
+                color_start = datetime.now()
                 image_array = np.frombuffer(cropped_image, np.uint8)
-                image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+                image = await asyncio.to_thread(cv2.imdecode, image_array, cv2.IMREAD_COLOR)
                 last_box = sorted_boxes[-1]
-                last_digit_image = extract_digit_image(image, last_box)
-                color_result = classify_color_image(last_digit_image)
+                last_digit_image = await asyncio.to_thread(extract_digit_image, image, last_box)
+                color_result = await asyncio.to_thread(classify_color_image, last_digit_image)
+                color_time = (datetime.now() - color_start).total_seconds()
+                self.extraction_logger.debug("Color classification took %.4f seconds", color_time)
 
             last_digit_color = color_result['prediction'].lower()
             color_confidence = color_result['confidence']
