@@ -15,7 +15,7 @@ from conf.config import Config
 from service.api.metadata_service import MetadataStore
 from PIL import Image, ImageOps
 
-import requests
+import httpx
 from io import BytesIO
 import numpy as np
 import cv2
@@ -90,8 +90,11 @@ class ImageService:
         cropped_image = image.crop((left, top, right, bottom))
         return cropped_image
 
-    def preprocess_image(self, imageURL):
-        image = Image.open(BytesIO(requests.get(imageURL).content))
+    async def preprocess_image(self, imageURL):
+        async with httpx.AsyncClient() as client:
+            response = await client.get(imageURL)
+            response.raise_for_status()
+            image = Image.open(BytesIO(response.content))
         image = ImageOps.exif_transpose(image)
         resized_image = self.resize_image(image, max_height=self.resizing_height, max_width=self.resizing_width)
         cropped_image = self.crop_image(resized_image)
@@ -100,7 +103,7 @@ class ImageService:
         # cropped_image.save("image_used.png")
         return image_buffer.getvalue()
 
-    def extract_reading(self, request: ReadingExtractionRequest, background_tasks: BackgroundTasks) -> ReadingExtractionResponse:
+    async def extract_reading(self, request: ReadingExtractionRequest, background_tasks: BackgroundTasks) -> ReadingExtractionResponse:
         status_code = HTTPStatus.OK.value
         response_code = ResponseCode.OK
         request.id = request.id if request.id else uuid4()
@@ -110,7 +113,7 @@ class ImageService:
         try:
             start_time = datetime.now()
             self.extraction_logger.info(str(request.model_dump_json()))
-            cropped_image = self.preprocess_image(request.imageURL)
+            cropped_image = await self.preprocess_image(request.imageURL)
 
             # Get quality status from BFM classification
             quality_result = classify_bfm_image(cropped_image)

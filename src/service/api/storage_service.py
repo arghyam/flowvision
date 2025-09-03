@@ -6,7 +6,7 @@ from conf.config import Config
 import logging
 from http import HTTPStatus
 from datetime import datetime
-import requests
+import httpx
 import boto3
 from botocore.config import Config as BotoConfig
 from uuid import uuid4, UUID
@@ -26,13 +26,14 @@ class StorageService:
     # endpoint_url=config.find("s3.endpoint_url"),
     )
 
-  def _send_to_storage(self, url, image_bytes, content_type):
+  async def _send_to_storage(self, url, image_bytes, content_type):
     try:
-      http_response = requests.put(
-        url=url,
-        data=image_bytes,
-        headers={'Content-Type': content_type}
-      )
+      async with httpx.AsyncClient() as client:
+        http_response = await client.put(
+          url,
+          content=image_bytes,
+          headers={'Content-Type': content_type}
+        )
     except Exception as e:
       self.logger.error(f"Error uploading image to presigned URL: {str(e)}")
       raise CustomHTTPException(
@@ -44,12 +45,13 @@ class StorageService:
       self.logger.error(f"AWS PUT BUCKET RESPONSE: {http_response.__dict__}")
       raise CustomHTTPException(
         status_code=http_response.status_code,
-        detail=f"Error uploading image to presigned URL: {http_response.reason}"
+        detail=f"Error uploading image to presigned URL: {http_response.reason_phrase}"
       )
 
   async def _get_from_storage(self, url):
     try:
-      http_response = requests.get(url=url)
+      async with httpx.AsyncClient() as client:
+        http_response = await client.get(url)
     except Exception as e:
       self.logger.error(f"Error retrieving image from presigned URL: {str(e)}")
       raise CustomHTTPException(
@@ -60,7 +62,7 @@ class StorageService:
       self.logger.error(f"AWS GET BUCKET RESPONSE: {http_response.__dict__}")
       raise CustomHTTPException(
         status_code=http_response.status_code,
-        detail=f"Error retrieving image from presigned URL: {http_response.reason}"
+        detail=f"Error retrieving image from presigned URL: {http_response.reason_phrase}"
       )
     return http_response.content
 
@@ -76,7 +78,7 @@ class StorageService:
       download_url = self.generate_presigned_download_url(object_key=file_name)
       self.logger.info(msg=f"PRESIGNED DOWNLOAD URL GENERATED: {download_url}")
 
-      self._send_to_storage(url=upload_url, image_bytes=image_bytes, content_type=content_type)
+      await self._send_to_storage(url=upload_url, image_bytes=image_bytes, content_type=content_type)
       await request.image.close()
 
       result = ImageUploadResult(imageURL=download_url)
