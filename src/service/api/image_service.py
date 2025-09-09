@@ -7,9 +7,6 @@ from uuid import uuid4, UUID
 
 from fastapi import BackgroundTasks
 from error.error import CustomHTTPException
-from service.vision.openai_vision_service import OpenAIVisionService
-from service.vision.qwen_vision_service import QwenVisionService
-from service.vision.inception_v3_service import InceptionV3VisionService
 from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, FeedbackStatus, BaseResponse
 from conf.config import Config
 from service.api.metadata_service import MetadataStore
@@ -39,66 +36,19 @@ class ImageService:
 
         self.metadata_store = MetadataStore(config=config)
 
-        vision_model: str = config.find("vision_model")
-        self.base_logger.info("Vision model: %s", vision_model)
+        self.base_logger.info("Loading fine-tuned InceptionV3 models...")
+        # Load models from config
+        self.bfm_classification_model = load_bfm_classification()
+        self.individual_numbers_model = load_individual_numbers_model()
+        self.color_classification_model = load_color_classification_model()
 
-        if ('gpt-4o'.lower() == vision_model.lower()):
-            self.model = "GPT"
-            self.vision_service = OpenAIVisionService(config=config)
-        elif (vision_model.lower().__contains__('qwen')):
-            self.vision_service = QwenVisionService()
-            self.model = "QWEN"
-        elif vision_model.lower() == 'inceptionv3':
-            self.vision_service = InceptionV3VisionService(config=config)
-            self.model = "INCEPTIONV3"
-        else:
-            raise Exception("Configured model not available for service...")
 
-        self.resizing_width = config.find("image_resizing.width")
-        self.resizing_height = config.find("image_resizing.height")
-        self.crop_left = config.find("image_crop.left")
-        self.crop_top = config.find("image_crop.top")
-        self.crop_right = config.find("image_crop.right")
-        self.crop_bottom = config.find("image_crop.bottom")
-
-    def resize_image(self, image: Image.Image, max_height=800, max_width=1000):
-        """Resize the image only if it exceeds the specified dimensions."""
-        original_width, original_height = image.size
-
-        # Check if resizing is needed
-        if original_width > max_width or original_height > max_height:
-            # Calculate the new size maintaining the aspect ratio
-            aspect_ratio = original_width / original_height
-            if original_width > original_height:
-                new_width = max_width
-                new_height = int(max_width / aspect_ratio)
-            else:
-                new_height = max_height
-                new_width = int(max_height * aspect_ratio)
-
-            # Resize the image using LANCZOS for high-quality downscaling
-            return image.resize((new_width, new_height), Image.LANCZOS)
-        else:
-            return image
-
-    def crop_image(self, image: Image.Image):
-        width, height = image.size   # Get dimensions
-        left = self.crop_left * width
-        top = self.crop_top * height
-        right = self.crop_right * width
-        bottom = self.crop_bottom * height
-        cropped_image = image.crop((left, top, right, bottom))
-        return cropped_image
-
-    def preprocess_image(self, imageURL):
+    def download_image(self, imageURL):
         image = Image.open(BytesIO(requests.get(imageURL).content))
-        image = ImageOps.exif_transpose(image)
-        resized_image = self.resize_image(image, max_height=self.resizing_height, max_width=self.resizing_width)
-        cropped_image = self.crop_image(resized_image)
         image_buffer = BytesIO()
-        cropped_image.save(image_buffer, format="PNG")
-        # cropped_image.save("image_used.png")
+        image.save(image_buffer, format="PNG")
         return image_buffer.getvalue()
+
 
     def extract_reading(self, request: ReadingExtractionRequest, background_tasks: BackgroundTasks) -> ReadingExtractionResponse:
         status_code = HTTPStatus.OK.value
@@ -110,17 +60,18 @@ class ImageService:
         try:
             start_time = datetime.now()
             self.extraction_logger.info(str(request.model_dump_json()))
-            cropped_image = self.preprocess_image(request.imageURL)
+            original_image = self.download_image(request.imageURL)
 
             # Get quality status from BFM classification
-            quality_result = classify_bfm_image(cropped_image)
+            quality_result = classify_bfm_image(original_image, model=self.bfm_classification_model)
             quality_status = quality_result['prediction'].lower()
             quality_confidence = quality_result['confidence']
 
             # Only proceed with meter reading if quality is good
             if quality_status == 'good':
                 # Detect digits and get their bounding boxes
-                meter_reading_result = self.vision_service.extract(image_bytes=cropped_image)
+                pil_image = Image.open(BytesIO(original_image))
+                meter_reading_result = direct_recognize_meter_reading(np.array(pil_image), self.individual_numbers_model)
                 # Expecting: meter_reading, sorted_boxes, sorted_classes
                 if isinstance(meter_reading_result, tuple) and len(meter_reading_result) >= 3:
                     meter_reading, sorted_boxes, sorted_classes = meter_reading_result
@@ -142,11 +93,11 @@ class ImageService:
 
             # Only classify color if digits were detected
             if sorted_boxes and len(sorted_boxes) > 0:
-                image_array = np.frombuffer(cropped_image, np.uint8)
+                image_array = np.frombuffer(original_image, np.uint8)
                 image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
                 last_box = sorted_boxes[-1]
                 last_digit_image = extract_digit_image(image, last_box)
-                color_result = classify_color_image(last_digit_image)
+                color_result = classify_color_image(last_digit_image, model=self.color_classification_model)
 
             last_digit_color = color_result['prediction'].lower()
             color_confidence = color_result['confidence']

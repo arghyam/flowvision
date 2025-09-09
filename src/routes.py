@@ -4,7 +4,6 @@ from typing_extensions import Annotated
 
 from conf.logging import CustomLoggers
 from service.api.image_service import ImageService
-from service.api.storage_service import StorageService
 from conf.config import Config
 from models.models import ImageUploadRequest, ReadingExtractionRequest, ReadingExtractionResponse, FeedbackRequest, FeedbackResponse
 
@@ -15,17 +14,11 @@ app = FastAPI()
 config = Config()
 CustomLoggers(config=config)
 flow_vision_service = ImageService(config=config)
-storage_service = StorageService(config=config)
 basepath = "/flowvision/v1"
 
 @app.get("/")
 async def root():
     return {"message": "Hi, I am the meter reading assistant."}
-
-
-@app.post(f"{basepath}/uploadImage")
-async def upload_image(request: Annotated[ImageUploadRequest, Form()]):
-    return await storage_service.upload_image(request)
 
 
 @app.post(f"{basepath}/extract-reading", response_model=ReadingExtractionResponse, response_model_exclude_none=True)
