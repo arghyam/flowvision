@@ -62,6 +62,7 @@ class ReadingExtractionResultData(BaseModel):
   qualityConfidence: float
   lastDigitColor: str
   colorConfidence: float
+  stageTimings: Optional[Dict[str, float]] = None
 
 
 
