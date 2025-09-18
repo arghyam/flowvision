@@ -22,6 +22,22 @@ database:
   dbname: "flowvision"
   username: postgres
   password: postgres
+  pool:
+    size: 10
+    max_overflow: 20
+    timeout: 30
+    recycle: 1800
+
+http:
+  download:
+    connect_timeout_seconds: 5
+    read_timeout_seconds: 10
+    max_connections: 50
+    max_keepalive_connections: 20
+
+metadata:
+  worker_threads: 2
+  queue_maxsize: 2000
 
 
 # Model paths
@@ -29,6 +45,7 @@ models:
   bfm_classification: "src/models/bfm_fastai"
   individual_numbers: "src/models/individual_number_recognition_yolo11l.pt"
   color_classification: "src/models/color_classification_fastai"
+  inference_workers: 2
 
 # Image processing parameters
 image_enhancement:
