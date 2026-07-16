@@ -77,48 +77,43 @@ def load_color_classification_model(model_path=None):
     return learn
 
 
-# def classify_bfm_image(image_path, model=None):
-def classify_bfm_image(img, model=None):
+def classify_bfm_image(img, model=None, threshold=None):
     """
-    Classify a Bulk Flow Meter image as good or bad
-    
+    Classify a Bulk Flow Meter image as good or bad.
+
     Args:
-        image_path: Path to the image file or PIL Image object
-        model: Optional pre-loaded model. If None, will load the model
-        
+        img: PIL Image or numpy array
+        model: Optional pre-loaded FastAI learner
+        threshold: Minimum P(good) to classify as 'good'.
+                   Defaults to config value quality_threshold (0.5 if not set).
+
     Returns:
-        Dictionary with classification results:
         {
-            'prediction': str,       # 'good' or 'bad'
-            'confidence': float,     # Probability of the prediction
-            'all_probs': list        # Probabilities for all classes
+            'prediction': str,    # 'good' or 'bad'
+            'confidence': float,  # probability of the predicted class
+            'all_probs': list     # [P(bad), P(good)]
         }
     """
-    # Load model if not provided
     if model is None:
         model = load_bfm_classification()
-    
-    # Load the image
-    # if isinstance(image_path, str):
-    #     image = cv2.imread(image_path)
-    # elif isinstance(image_path, np.ndarray):
-    #     image = image_path
-    # else:
-    #     raise ValueError("Input must be either a file path or a numpy array")
-    
-    # # Convert BGR to RGB since FastAI expects RGB
-    # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    
-    # # Convert to FastAI image format
-    # img = PILImage.create(image)
-    
-    # Make prediction
-    pred_class, pred_idx, probs = model.predict(img)
-    
+
+    if threshold is None:
+        threshold = CONFIG.get('quality_threshold', 0.5)
+
+    _, _, probs = model.predict(img)
+    all_probs = [float(p) for p in probs]
+
+    # vocab is alphabetical: ['bad', 'good'] — index 1 is always 'good'
+    good_idx = list(model.dls.vocab).index('good')
+    good_prob = all_probs[good_idx]
+
+    prediction = 'good' if good_prob >= threshold else 'bad'
+    confidence = good_prob if prediction == 'good' else 1.0 - good_prob
+
     return {
-        'prediction': str(pred_class),
-        'confidence': float(probs[pred_idx]),
-        'all_probs': [float(p) for p in probs]
+        'prediction': prediction,
+        'confidence': confidence,
+        'all_probs': all_probs
     }
 
 def classify_color_image(image_path, model=None):

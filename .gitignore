@@ -1,8 +1,16 @@
 venv/
 env/
 __pycache__/
-data/
+/data/
 .flake8
 .DS_Store
 logs/
 .idea/
+
+# Image files under src/data/ are large binaries — track only CSVs and .gitkeep
+src/data/**/*.jpg
+src/data/**/*.jpeg
+src/data/**/*.png
+
+# Training checkpoint files — large, not needed in git
+training/*/models/*.pth

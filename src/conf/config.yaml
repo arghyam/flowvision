@@ -26,9 +26,14 @@ database:
 
 # Model paths
 models:
-  bfm_classification: "src/models/bfm_fastai"
+  bfm_classification: "src/models/bfm_fastai_v2"
   individual_numbers: "src/models/individual_number_recognition_yolo11l.pt"
   color_classification: "src/models/color_classification_fastai"
+
+# Minimum P(good) required to classify an image as good quality.
+# Images below this threshold are classified as bad and returned as UNCLEAR.
+# Sweep results on 1076 test images: 0.65 gives the best accuracy/recall balance.
+quality_threshold: 0.65
 
 # Image processing parameters
 image_enhancement:
