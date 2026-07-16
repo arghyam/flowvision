@@ -2,8 +2,6 @@
 
 This document provides a comprehensive reference for the FlowVision REST API, including endpoint specifications, request/response formats, authentication, and error handling patterns. The API enables external clients to upload images and extract meter readings using AI-powered vision services.
 
-For detailed endpoint documentation, see [API Endpoints](https://deepwiki.com/arghyam/flowvision/2.1-api-endpoints). For complete data model specifications, see [Data Models](https://deepwiki.com/arghyam/flowvision/2.2-data-models). For information about the underlying services, see [Core Services](https://deepwiki.com/arghyam/flowvision/3-core-services).
-
 ### API Overview <a href="#api-overview" id="api-overview"></a>
 
 The FlowVision API is built using FastAPI and exposes a RESTful interface at the base path `/flowvision/v1`. The API follows a three-phase workflow: image upload, reading extraction, and optional feedback submission.
@@ -17,128 +15,293 @@ The FlowVision API is built using FastAPI and exposes a RESTful interface at the
 
 <figure><img src=".gitbook/assets/Screenshot 2025-07-28 at 2.40.59 PM.png" alt=""><figcaption></figcaption></figure>
 
+---
 
-### Endpoint Specifications <a href="#endpoint-specifications" id="endpoint-specifications"></a>
+## Endpoints
 
-#### Health Check Endpoint <a href="#health-check-endpoint" id="health-check-endpoint"></a>
+| Method | Path                             | Description                               |
+| ------ | -------------------------------- | ----------------------------------------- |
+| GET    | `/`                              | Health check                              |
+| POST   | `/flowvision/v1/uploadImage`     | Upload image to S3 and get presigned URL  |
+| POST   | `/flowvision/v1/extract-reading` | Extract meter reading from an image URL   |
+| POST   | `/flowvision/v1/feedback`        | Submit accuracy feedback for a reading    |
 
-| Method | Path | Description               |
-| ------ | ---- | ------------------------- |
-| GET    | `/`  | Returns API health status |
+---
 
-**Response:**
+## GET `/`
 
-```
-{  
-    "message": "Hi, I am the meter reading assistant."
+Returns API health status.
+
+**Response**
+```json
+{
+  "message": "Hi, I am the meter reading assistant."
 }
 ```
 
-#### Image Upload Endpoint <a href="#image-upload-endpoint" id="image-upload-endpoint"></a>
+---
 
-| Method | Path                         | Description                              |
-| ------ | ---------------------------- | ---------------------------------------- |
-| POST   | `/flowvision/v1/uploadImage` | Upload image to S3 and get presigned URL |
+## POST `/flowvision/v1/uploadImage`
+
+Uploads an image to S3 and returns a presigned URL for use in the extraction endpoint.
 
 **Request Format:** `multipart/form-data` with `ImageUploadRequest` model
 
 **Response:** Returns S3 presigned URL with 60-second expiry for subsequent extraction requests.
 
+---
 
-#### Reading Extraction Endpoint <a href="#reading-extraction-endpoint" id="reading-extraction-endpoint"></a>
+## POST `/flowvision/v1/extract-reading`
 
-| Method | Path                             | Description                               |
-| ------ | -------------------------------- | ----------------------------------------- |
-| POST   | `/flowvision/v1/extract-reading` | Extract meter reading from uploaded image |
+Extracts a meter reading from an image hosted at a given URL.
 
-**Request Format:** JSON with `ReadingExtractionRequest` schema
+### Request Body (`application/json`)
 
-**Required Fields:**
+| Field      | Type                | Required | Description                                      |
+| ---------- | ------------------- | -------- | ------------------------------------------------ |
+| `id`       | `string (UUID)`     | No       | Client-generated request identifier              |
+| `ts`       | `string (datetime)` | No       | Request timestamp in ISO 8601 format             |
+| `imageURL` | `string`            | Yes      | URL of the meter image (e.g. S3 presigned URL)   |
+| `metadata` | `object`            | No       | Arbitrary key-value pairs for additional context |
 
-* `id`: Unique request identifier
-* `ts`: Timestamp in ISO format
-* `imageURL`: S3 URL from upload endpoint
-* `metadata`: Additional context data (nullable)
-
-**Response Model:** `ReadingExtractionResponse` with excluded null fields
-
-**Processing Flow:**
-
-1. Validates image URL and metadata
-2. Triggers `ImageService.extract_reading()` with background task scheduling
-3. Returns structured response with correlation ID for feedback
-
-
-#### Feedback Endpoint <a href="#feedback-endpoint" id="feedback-endpoint"></a>
-
-| Method | Path                      | Description                                    |
-| ------ | ------------------------- | ---------------------------------------------- |
-| POST   | `/flowvision/v1/feedback` | Submit accuracy feedback for extracted reading |
-
-**Request Format:** JSON with `FeedbackRequest` schema
-
-**Required Fields:**
-
-* `id`: Original request identifier
-* `ts`: Feedback timestamp
-* `correlationId`: From extraction response
-* `data`: Feedback data with accuracy flag and readings
-
-**Response Model:** `FeedbackResponse` with excluded null fields
-
-
-### Response Status Patterns <a href="#response-status-patterns" id="response-status-patterns"></a>
-
-#### Success Response Structure <a href="#success-response-structure" id="success-response-structure"></a>
-
-All successful API responses follow this pattern:
-
-```markdown
-{  
-    "id": "request-uuid",  
-    "ts": "2024-01-01T00:00:00Z",   
-    "responseCode": "OK",  
-    "statusCode": 200,
-    "errorCode": null,  
-    "result": 
-        {    
-            "status": "SUCCESS|SUBMITTED",
-            "correlationId": "correlation-uuid",    
-            "data": { /* endpoint-specific data */ }
-        }
-}
-```
-
-#### Error Response Structure <a href="#error-response-structure" id="error-response-structure"></a>
-
-Error responses include detailed error information:
-
-```markdown
+**Example**
+```json
 {
-  "id": "request-uuid",
-  "ts": "2024-01-01T00:00:00Z",
-  "responseCode": "ERROR", 
-  "statusCode": 500,
-  "errorCode": {
-    "errorCode": "ERR_READING_EXTRACTION_FAILED",
-    "errorMsg": "Failed to extract meter reading"
-  },
-  "result": null
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "ts": "2026-06-25T10:30:00Z",
+  "imageURL": "https://s3.amazonaws.com/bucket/meter-image.jpg",
+  "metadata": {
+    "location": "zone-A",
+    "deviceId": "meter-001"
+  }
 }
-
 ```
 
-#### Extraction Status Values <a href="#extraction-status-values" id="extraction-status-values"></a>
+### Response Body (`application/json`)
 
-The `ExtractReadingStatus` enum defines possible extraction outcomes:
+**Success — HTTP 200**
 
-| Status    | Description                        |
-| --------- | ---------------------------------- |
-| `SUCCESS` | Reading successfully extracted     |
-| `NOMETER` | No meter detected in image         |
-| `UNCLEAR` | Image quality too poor for reading |
-| `INVALID` | Invalid image or processing error  |
+| Field          | Type            | Description                                     |
+| -------------- | --------------- | ----------------------------------------------- |
+| `id`           | `string (UUID)` | Echoed request identifier                        |
+| `ts`           | `string`        | Response timestamp                               |
+| `responseCode` | `string`        | Always `"OK"` on success                         |
+| `statusCode`   | `integer`       | HTTP status code (`200`)                         |
+| `result`       | `object`        | Extraction result (see below)                    |
 
+**`result` object**
+
+| Field           | Type            | Description                                                 |
+| --------------- | --------------- | ----------------------------------------------------------- |
+| `status`        | `string (enum)` | Outcome of extraction — see [Status Values](#status-values) |
+| `correlationId` | `string (UUID)` | Unique ID linking this result to a feedback submission      |
+| `data`          | `object`        | Reading details; always present regardless of `status`      |
+
+**`result.data` object**
+
+| Field                                       | Type              | Description                                                                                                                                     |
+| ------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `meterReading`                              | `string`          | Raw digit string extracted from the meter (e.g. `"96733"`). No decimal adjustment is applied — the downstream system interprets fractional digits based on `lastDigitColor`. |
+| `hasRollover`                               | `boolean`         | `true` if one or more digit wheels were detected mid-rotation (between two digit positions).                                                    |
+| `rolloverPositions`                         | `array` \| absent | Present only when `hasRollover` is `true`. Each entry describes one rollover position. Omitted from response when there is no rollover.         |
+| `rolloverPositions[].position`              | `integer`         | 1-indexed position of the rollover digit in the reading, counted left to right.                                                                 |
+| `rolloverPositions[].selectedDigit.value`   | `integer`         | The digit value chosen by the model (highest-confidence detection at this position).                                                            |
+| `rolloverPositions[].selectedDigit.confidence` | `float`        | Model confidence for the selected digit (`0.0` – `1.0`).                                                                                       |
+| `rolloverPositions[].alternateDigit.value`  | `integer`         | The next-best digit candidate at this position.                                                                                                 |
+| `rolloverPositions[].alternateDigit.confidence` | `float`       | Model confidence for the alternate digit (`0.0` – `1.0`).                                                                                      |
+| `processingTime`                            | `float`           | Total server-side processing time in seconds.                                                                                                   |
+| `qualityStatus`                             | `string`          | Image quality classification: `"good"` or `"bad"`.                                                                                             |
+| `qualityConfidence`                         | `float`           | Model confidence for the quality classification (`0.0` – `1.0`).                                                                               |
+| `lastDigitColor`                            | `string`          | Detected color of the last digit wheel: `"red"`, `"black"`, or `"unknown"` (when no digits were detected).                                     |
+| `colorConfidence`                           | `float`           | Model confidence for the color classification (`0.0` – `1.0`).                                                                                 |
+
+> `data` is always present in the response regardless of `status`. When the meter is not detected or image quality is bad, `meterReading` will contain a descriptive string rather than a numeric value.
+
+**Example — successful reading with rollover**
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "ts": "2026-06-25T10:30:01Z",
+  "responseCode": "OK",
+  "statusCode": 200,
+  "result": {
+    "status": "SUCCESS",
+    "correlationId": "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
+    "data": {
+      "meterReading": "96733",
+      "hasRollover": true,
+      "rolloverPositions": [
+        {
+          "position": 3,
+          "selectedDigit": { "value": 7, "confidence": 0.94 },
+          "alternateDigit": { "value": 6, "confidence": 0.91 }
+        }
+      ],
+      "processingTime": 1.23,
+      "qualityStatus": "good",
+      "qualityConfidence": 0.95,
+      "lastDigitColor": "red",
+      "colorConfidence": 0.98
+    }
+  }
+}
+```
+
+**Example — no meter detected**
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "ts": "2026-06-25T10:30:01Z",
+  "responseCode": "OK",
+  "statusCode": 200,
+  "result": {
+    "status": "NOMETER",
+    "correlationId": "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
+    "data": {
+      "meterReading": "nometer",
+      "hasRollover": false,
+      "processingTime": 0.85,
+      "qualityStatus": "good",
+      "qualityConfidence": 0.91,
+      "lastDigitColor": "unknown",
+      "colorConfidence": 0.0
+    }
+  }
+}
+```
+
+**Error — HTTP 500**
+
+| Field          | Type      | Description       |
+| -------------- | --------- | ----------------- |
+| `id`           | `string`  | Echoed request ID |
+| `ts`           | `string`  | Response timestamp |
+| `responseCode` | `string`  | Always `"ERROR"`  |
+| `statusCode`   | `integer` | `500`             |
+| `error`        | `object`  | Error details     |
+
+**`error` object**
+
+| Field       | Type      | Description                                        |
+| ----------- | --------- | -------------------------------------------------- |
+| `errorCode` | `integer` | `500` — the only value produced by current routes  |
+| `errorMsg`  | `string`  | Exception message from the server                  |
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "ts": "2026-06-25T10:30:01Z",
+  "responseCode": "ERROR",
+  "statusCode": 500,
+  "error": {
+    "errorCode": 500,
+    "errorMsg": "..."
+  }
+}
+```
+
+**Validation Error — HTTP 422**
+
+Returned by FastAPI when the request body fails schema validation.
+
+---
+
+## POST `/flowvision/v1/feedback`
+
+Submits human accuracy feedback for a previously extracted reading, linked via `correlationId`.
+
+### Request Body (`application/json`)
+
+| Field           | Type                | Required | Description                                              |
+| --------------- | ------------------- | -------- | -------------------------------------------------------- |
+| `id`            | `string (UUID)`     | No       | Client-generated request identifier                      |
+| `ts`            | `string (datetime)` | No       | Request timestamp in ISO 8601 format                     |
+| `correlationId` | `string (UUID)`     | Yes      | `correlationId` from the `extract-reading` response      |
+| `data`          | `object`            | Yes      | Feedback payload (see below)                             |
+
+**`data` object**
+
+| Field       | Type      | Required | Description                                        |
+| ----------- | --------- | -------- | -------------------------------------------------- |
+| `accurate`  | `boolean` | Yes      | Whether the extracted reading was correct          |
+| `extracted` | `float`   | No       | The value that was extracted by the model          |
+| `actual`    | `float`   | No       | The true meter reading as verified by the operator |
+
+**Example**
+```json
+{
+  "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+  "ts": "2026-06-25T10:35:00Z",
+  "correlationId": "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
+  "data": {
+    "accurate": false,
+    "extracted": 24506.9,
+    "actual": 24510.0
+  }
+}
+```
+
+### Response Body (`application/json`)
+
+**Success — HTTP 200**
+
+| Field          | Type      | Description                |
+| -------------- | --------- | -------------------------- |
+| `id`           | `string`  | Echoed request ID          |
+| `ts`           | `string`  | Response timestamp         |
+| `responseCode` | `string`  | `"OK"`                     |
+| `statusCode`   | `integer` | `200`                      |
+| `result`       | `object`  | Feedback submission status |
+
+**`result` object**
+
+| Field    | Type            | Description                                                          |
+| -------- | --------------- | -------------------------------------------------------------------- |
+| `status` | `string (enum)` | `"SUBMITTED"` if feedback was stored; `"FAILED"` if it could not be |
+
+```json
+{
+  "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+  "ts": "2026-06-25T10:35:01Z",
+  "responseCode": "OK",
+  "statusCode": 200,
+  "result": {
+    "status": "SUBMITTED"
+  }
+}
+```
+
+**Error — HTTP 500**
+
+Same envelope as the extract-reading error response above.
+
+---
+
+## Status Values
+
+### Extraction Status (`result.status` in extract-reading)
+
+| Value     | Description                                         |
+| --------- | --------------------------------------------------- |
+| `SUCCESS` | Meter reading extracted successfully                |
+| `NOMETER` | No meter detected in the image                      |
+| `UNCLEAR` | Image quality too poor to extract a reading         |
+
+### Feedback Status (`result.status` in feedback)
+
+| Value       | Description                  |
+| ----------- | ---------------------------- |
+| `SUBMITTED` | Feedback accepted and stored |
+| `FAILED`    | Feedback could not be stored |
+
+### Response Code (`responseCode`)
+
+| Value   | Meaning                    |
+| ------- | -------------------------- |
+| `OK`    | Request processed normally |
+| `ERROR` | An error occurred          |
+
+---
 
 ### Background Task Processing <a href="#background-task-processing" id="background-task-processing"></a>
 
@@ -160,4 +323,3 @@ The FastAPI application initializes core services at startup:
 | `ImageService`   | Orchestrates meter reading extraction workflow | Uses `Config` for vision service selection |
 | `StorageService` | Manages S3 image uploads and presigned URLs    | Configured via AWS credentials             |
 | `Config`         | Centralized configuration management           | Loads from `config.yaml` and environment   |
-
