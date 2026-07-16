@@ -28,7 +28,7 @@ database:
 models:
   bfm_classification: "src/models/bfm_fastai_v2"
   individual_numbers: "src/models/individual_number_recognition_yolo11l.pt"
-  color_classification: "src/models/color_classification_fastai"
+  color_classification: "src/models/color_classification_fastai_v2"
 
 # Minimum P(good) required to classify an image as good quality.
 # Images below this threshold are classified as bad and returned as UNCLEAR.

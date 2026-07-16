@@ -118,7 +118,7 @@ def classify_bfm_image(img, model=None, threshold=None):
 
 def classify_color_image(image_path, model=None):
     """
-    Classify a color image as red, black, or blue
+    Classify the last digit crop as red or black.
     """
     if model is None:
         model = load_color_classification_model()
