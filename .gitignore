@@ -5,3 +5,4 @@ data/
 .flake8
 .DS_Store
 logs/
+.idea/

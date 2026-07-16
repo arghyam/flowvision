@@ -215,50 +215,60 @@ def test_image_prediction(image_path=None):
         extraction_logger.error(f"Error processing image: {str(e)}")
 
 
-def sort_boxes_by_position(boxes, classes):
+def sort_boxes_by_position(boxes, classes, confidences=None):
     """
     Sort detected digit boxes by their x-coordinate for left-to-right reading order.
     """
-    # Create a list of (box, class) tuples
+    if confidences is not None:
+        box_class_pairs = list(zip(boxes, classes, confidences))
+        sorted_pairs = sorted(box_class_pairs, key=lambda pair: np.min(pair[0][:, 0]))
+        if not sorted_pairs:
+            return [], [], []
+        sorted_boxes, sorted_classes, sorted_confs = zip(*sorted_pairs)
+        return list(sorted_boxes), list(sorted_classes), list(sorted_confs)
+
     box_class_pairs = list(zip(boxes, classes))
-    
-    # For oriented bounding boxes, use the leftmost x-coordinate of each box
     sorted_pairs = sorted(box_class_pairs, key=lambda pair: np.min(pair[0][:, 0]))
-    
-    # Unzip the sorted pairs back into separate lists
     sorted_boxes, sorted_classes = zip(*sorted_pairs) if box_class_pairs else ([], [])
-    
     return list(sorted_boxes), list(sorted_classes)
 
 def calculate_iou(box1, box2):
     """
-    Calculate the Intersection over Union (IoU) between two polygon boxes
-    
+    Calculate the Intersection over Union (IoU) between two polygon boxes.
+
     Args:
         box1: First box as a numpy array of 4 points [(x1,y1), (x2,y2), (x3,y3), (x4,y4)]
         box2: Second box as a numpy array of 4 points [(x1,y1), (x2,y2), (x3,y3), (x4,y4)]
-        
+
     Returns:
         IoU value between 0 and 1
     """
-    # Convert polygon points to contour format for OpenCV
-    box1_contour = box1.reshape(-1, 1, 2).astype(np.int32)
-    box2_contour = box2.reshape(-1, 1, 2).astype(np.int32)
-    
-    # Create blank binary images
-    img_size = (1000, 1000)  # Large enough canvas
-    box1_mask = np.zeros(img_size, dtype=np.uint8)
-    box2_mask = np.zeros(img_size, dtype=np.uint8)
-    
-    # Fill polygons
-    cv2.fillPoly(box1_mask, [box1_contour], 1)
-    cv2.fillPoly(box2_mask, [box2_contour], 1)
-    
-    # Calculate intersection and union
+    # Build a canvas that tightly fits both boxes so coordinates are never
+    # clipped — the previous (1000, 1000) canvas silently dropped any boxes
+    # whose points lay beyond x=1000 or y=1000, returning IoU=0 for them.
+    all_pts = np.vstack([box1, box2])
+    x_min = max(int(np.min(all_pts[:, 0])), 0)
+    y_min = max(int(np.min(all_pts[:, 1])), 0)
+    x_max = int(np.max(all_pts[:, 0])) + 1
+    y_max = int(np.max(all_pts[:, 1])) + 1
+
+    w = x_max - x_min
+    h = y_max - y_min
+
+    # Translate both boxes to local (0-based) coordinates
+    offset = np.array([x_min, y_min])
+    b1 = (box1-offset).reshape(-1, 1, 2).astype(np.int32)
+    b2 = (box2-offset).reshape(-1, 1, 2).astype(np.int32)
+
+    box1_mask = np.zeros((h, w), dtype=np.uint8)
+    box2_mask = np.zeros((h, w), dtype=np.uint8)
+
+    cv2.fillPoly(box1_mask, [b1], 1)
+    cv2.fillPoly(box2_mask, [b2], 1)
+
     intersection = np.logical_and(box1_mask, box2_mask).sum()
     union = np.logical_or(box1_mask, box2_mask).sum()
-    
-    # Calculate IoU
+
     if union == 0:
         return 0
     return intersection / union
@@ -289,31 +299,37 @@ def remove_overlapping_boxes(boxes, classes, confidences, iou_threshold=0.5):
     filtered_boxes = []
     filtered_classes = []
     filtered_confidences = []
-    
+    # Each entry: (winner_box, winner_class, winner_conf, loser_class, loser_conf)
+    rollover_pairs = []
+
     # Process boxes in order of confidence
     while box_data:
         # Get the box with the highest confidence
         current_box, current_class, current_conf = box_data.pop(0)
-        
+
         # Add to filtered list
         filtered_boxes.append(current_box)
         filtered_classes.append(current_class)
         filtered_confidences.append(current_conf)
-        
-        # Check remaining boxes
+
+        # Check remaining boxes; collect all overlapping ones then pick the best alternate
         remaining_boxes = []
+        suppressed = []
         for box, cls, conf in box_data:
-            # Calculate IoU between current box and this box
             iou = calculate_iou(current_box, box)
-            
-            # If IoU is below threshold, keep this box for next iteration
             if iou < iou_threshold:
                 remaining_boxes.append((box, cls, conf))
-        
-        # Update box_data with remaining boxes
+            else:
+                suppressed.append((int(cls), float(conf)))
+
+        # Keep only the highest-confidence suppressed box as the alternate digit;
+        if suppressed:
+            best_alt_class, best_alt_conf = max(suppressed, key=lambda x: x[1])
+            rollover_pairs.append((current_box, int(current_class), float(current_conf), best_alt_class, best_alt_conf))
+
         box_data = remaining_boxes
-    
-    return filtered_boxes, filtered_classes, filtered_confidences
+
+    return filtered_boxes, filtered_classes, filtered_confidences, rollover_pairs
 
 def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
     """
@@ -375,21 +391,36 @@ def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
                 extraction_logger.debug("Original digit results: %s", digit_classes)
     
     # Step 4: Remove overlapping boxes
+    rollover_pairs = []
     if digit_boxes:
-        digit_boxes, digit_classes, digit_confidences = remove_overlapping_boxes(
+        digit_boxes, digit_classes, digit_confidences, rollover_pairs = remove_overlapping_boxes(
             digit_boxes, digit_classes, digit_confidences, iou_threshold=0.3
         )
-    
+
     # Step 5: Post-processing - sort the digits from left to right
     if not digit_boxes:
         return "Error: No digits detected in the image"
-    
-    sorted_boxes, sorted_classes = sort_boxes_by_position(digit_boxes, digit_classes)
-    
-    # Step 6: Extract the class labels and join them to form the digit sequence
+
+    sorted_boxes, sorted_classes, sorted_confidences = sort_boxes_by_position(
+        digit_boxes, digit_classes, digit_confidences
+    )
+
+    # Step 6: Map rollover pairs to their 1-indexed position in sorted order
+    rollover_positions = []
+    for winner_box, winner_class, winner_conf, loser_class, loser_conf in rollover_pairs:
+        for i, box in enumerate(sorted_boxes):
+            if np.array_equal(box, winner_box):
+                rollover_positions.append({
+                    'position': i + 1,
+                    'selectedDigit': {'value': winner_class, 'confidence': winner_conf},
+                    'alternateDigit': {'value': loser_class, 'confidence': loser_conf}
+                })
+                break
+
+    # Step 7: Extract the class labels and join them to form the digit sequence
     meter_reading = ''.join([str(cls) for cls in sorted_classes])
-    
-    return meter_reading , sorted_boxes , sorted_classes
+
+    return meter_reading, sorted_boxes, sorted_classes, rollover_positions
 
 # Function to extract digit image from its bounding box
 def extract_digit_image(image, box):

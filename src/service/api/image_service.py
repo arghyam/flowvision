@@ -7,7 +7,7 @@ from uuid import uuid4, UUID
 
 from fastapi import BackgroundTasks
 from error.error import CustomHTTPException
-from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, FeedbackStatus, BaseResponse
+from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, FeedbackStatus, BaseResponse, RolloverDigit, RolloverPosition
 from conf.config import Config
 from service.api.metadata_service import MetadataStore
 from PIL import Image, ImageOps
@@ -72,18 +72,22 @@ class ImageService:
                 # Detect digits and get their bounding boxes
                 pil_image = Image.open(BytesIO(original_image))
                 meter_reading_result = direct_recognize_meter_reading(np.array(pil_image), self.individual_numbers_model)
-                # Expecting: meter_reading, sorted_boxes, sorted_classes
-                if isinstance(meter_reading_result, tuple) and len(meter_reading_result) >= 3:
-                    meter_reading, sorted_boxes, sorted_classes = meter_reading_result
+                # Expecting: meter_reading, sorted_boxes, sorted_classes, rollover_positions
+                if isinstance(meter_reading_result, tuple) and len(meter_reading_result) >= 4:
+                    meter_reading, sorted_boxes, sorted_classes, raw_rollover = meter_reading_result
+                elif isinstance(meter_reading_result, tuple) and len(meter_reading_result) >= 3:
+                    meter_reading, sorted_boxes, sorted_classes = meter_reading_result[:3]
+                    raw_rollover = []
                 else:
                     meter_reading = meter_reading_result
-                    sorted_boxes, sorted_classes = [], []
+                    sorted_boxes, sorted_classes, raw_rollover = [], [], []
 
                 # Convert tuple to string if necessary
                 meter_reading_str = str(meter_reading[0]) if isinstance(meter_reading, tuple) else str(meter_reading)
             else:
                 meter_reading_str = "Image quality too poor for recognition"
                 sorted_boxes = []
+                raw_rollover = []
                 meter_reading_status = Status.UNCLEAR
 
             processing_time = (datetime.now() - start_time).total_seconds()
@@ -102,18 +106,29 @@ class ImageService:
             last_digit_color = color_result['prediction'].lower()
             color_confidence = color_result['confidence']
 
+            rollover_objs = [
+                RolloverPosition(
+                    position=rp['position'],
+                    selectedDigit=RolloverDigit(**rp['selectedDigit']),
+                    alternateDigit=RolloverDigit(**rp['alternateDigit'])
+                )
+                for rp in raw_rollover
+            ]
+
             if 'nometer' in meter_reading_str.lower():
                 meter_reading_status = Status.NOMETER
             elif 'unclear' in meter_reading_str.lower() or quality_status == 'bad':
                 meter_reading_status = Status.UNCLEAR
             else:
                 meter_reading_status = Status.SUCCESS
-             
+
             result = ReadingExtractionResult(
                 status=meter_reading_status,
                 correlationId=uuid4(),
                 data=ReadingExtractionResultData(
                     meterReading=meter_reading_str,
+                    hasRollover=len(rollover_objs) > 0,
+                    rolloverPositions=rollover_objs if rollover_objs else None,
                     processingTime=processing_time,
                     qualityStatus=quality_status,
                     qualityConfidence=quality_confidence,

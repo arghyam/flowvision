@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import UploadFile
 from enum import StrEnum
 from uuid import UUID
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 
 class Error(BaseModel):
@@ -54,9 +54,22 @@ class ImageUploadResult(BaseModel):
   imageURL: str
 
 
+class RolloverDigit(BaseModel):
+  value: int
+  confidence: float
+
+
+class RolloverPosition(BaseModel):
+  position: int
+  selectedDigit: RolloverDigit
+  alternateDigit: RolloverDigit
+
+
 class ReadingExtractionResultData(BaseModel):
   meterReading: Optional[float | str] = None
   meterBrand: Optional[str] = None
+  hasRollover: bool = False
+  rolloverPositions: Optional[List[RolloverPosition]] = None
   processingTime: float
   qualityStatus: str
   qualityConfidence: float
