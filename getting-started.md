@@ -156,6 +156,11 @@ POSTGRES_PASSWORD=your_postgres_password
 # Application environment
 ENVIRONMENT=development
 DEBUG=true
+
+# Image quality classification (optional)
+# Overrides quality_threshold in config.yaml without a rebuild.
+# Float in [0, 1]; higher = stricter (more images returned as UNCLEAR).
+FLOWVISION_QUALITY_THRESHOLD=0.65
 ```
 
 ### Deployment <a href="#deployment" id="deployment"></a>

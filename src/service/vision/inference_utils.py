@@ -77,6 +77,38 @@ def load_color_classification_model(model_path=None):
     return learn
 
 
+def get_quality_threshold():
+    """
+    Resolve the quality threshold used to classify an image as good/bad.
+
+    Precedence: FLOWVISION_QUALITY_THRESHOLD env var > config.yaml
+    (quality_threshold) > hardcoded default (0.5). Exposing it as an env var
+    lets ops tune the threshold at deploy time (set the variable and restart
+    the container) without rebuilding the image. Read on each call so the
+    value reflects the current environment.
+
+    An env value that is not a float in [0, 1] is ignored with a warning and
+    the config value is used, so a bad override never breaks classification.
+    """
+    config_default = CONFIG.get('quality_threshold', 0.5)
+    env_value = os.environ.get('FLOWVISION_QUALITY_THRESHOLD')
+    if env_value is None:
+        return config_default
+    try:
+        threshold = float(env_value)
+    except ValueError:
+        base_logger.warning(
+            "Invalid FLOWVISION_QUALITY_THRESHOLD=%r (not a number); "
+            "falling back to config value %s", env_value, config_default)
+        return config_default
+    if not 0.0 <= threshold <= 1.0:
+        base_logger.warning(
+            "FLOWVISION_QUALITY_THRESHOLD=%s is out of range [0, 1]; "
+            "falling back to config value %s", threshold, config_default)
+        return config_default
+    return threshold
+
+
 def classify_bfm_image(img, model=None, threshold=None):
     """
     Classify a Bulk Flow Meter image as good or bad.
@@ -84,8 +116,9 @@ def classify_bfm_image(img, model=None, threshold=None):
     Args:
         img: PIL Image or numpy array
         model: Optional pre-loaded FastAI learner
-        threshold: Minimum P(good) to classify as 'good'.
-                   Defaults to config value quality_threshold (0.5 if not set).
+        threshold: Minimum P(good) to classify as 'good'. Defaults to the
+                   FLOWVISION_QUALITY_THRESHOLD env var, else config value
+                   quality_threshold (0.5 if neither is set).
 
     Returns:
         {
@@ -98,7 +131,7 @@ def classify_bfm_image(img, model=None, threshold=None):
         model = load_bfm_classification()
 
     if threshold is None:
-        threshold = CONFIG.get('quality_threshold', 0.5)
+        threshold = get_quality_threshold()
 
     _, _, probs = model.predict(img)
     all_probs = [float(p) for p in probs]

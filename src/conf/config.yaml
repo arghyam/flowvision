@@ -33,6 +33,8 @@ models:
 # Minimum P(good) required to classify an image as good quality.
 # Images below this threshold are classified as bad and returned as UNCLEAR.
 # Sweep results on 1076 test images: 0.65 gives the best accuracy/recall balance.
+# Override at deploy time (no rebuild needed) with the FLOWVISION_QUALITY_THRESHOLD
+# env var, e.g. FLOWVISION_QUALITY_THRESHOLD=0.7; must be a float in [0, 1].
 quality_threshold: 0.65
 
 # Image processing parameters
