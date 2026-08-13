@@ -467,9 +467,12 @@ def extract_digit_image(image, box):
     
     # Fill the polygon on the mask
     cv2.fillPoly(mask, [shifted_box], 255)
+
+    result = np.full_like(cropped, 255)          # white background
+    result[mask == 255] = cropped[mask == 255]
     
-    # Apply mask to get only the digit
-    result = cv2.bitwise_and(cropped, cropped, mask=mask)
+    # Apply mask to get only the digit (black background)
+    # result = cv2.bitwise_and(cropped, cropped, mask=mask)
     
     return result
 
