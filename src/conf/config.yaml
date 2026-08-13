@@ -37,6 +37,18 @@ models:
 # env var, e.g. FLOWVISION_QUALITY_THRESHOLD=0.7; must be a float in [0, 1].
 quality_threshold: 0.65
 
+# Fill color for the parts of a digit crop that fall outside the detected digit
+# polygon. YOLO returns oriented boxes, so a tilted digit leaves triangular
+# corner regions in the axis-aligned crop that get padded with this color before
+# the crop goes to the color classifier. One of: black | white.
+#   black -> original behaviour; what color_classification_fastai (v1) expects.
+#   white -> what color_classification_fastai_v2 expects; markedly better on
+#            tilted digits, which is where v2 was regressing against v1.
+# Keep this paired with models.color_classification (v1 + black, v2 + white).
+# Override at deploy time (no rebuild needed) with the FLOWVISION_DIGIT_PADDING
+# env var, e.g. FLOWVISION_DIGIT_PADDING=black.
+digit_padding_color: white
+
 # Image processing parameters
 image_enhancement:
   clahe_clip_limit: 2.0

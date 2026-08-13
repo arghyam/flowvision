@@ -161,6 +161,13 @@ DEBUG=true
 # Overrides quality_threshold in config.yaml without a rebuild.
 # Float in [0, 1]; higher = stricter (more images returned as UNCLEAR).
 FLOWVISION_QUALITY_THRESHOLD=0.65
+
+# Last-digit colour classification (optional)
+# Overrides digit_padding_color in config.yaml without a rebuild.
+# black | white — the fill colour for the corners of a tilted digit crop that
+# fall outside the detected digit polygon. Pair `black` with the v1 colour
+# model and `white` with the v2 (finetuned) colour model.
+FLOWVISION_DIGIT_PADDING=white
 ```
 
 ### Deployment <a href="#deployment" id="deployment"></a>

@@ -109,6 +109,37 @@ def get_quality_threshold():
     return threshold
 
 
+def get_digit_padding_color():
+    """
+    Resolve the fill color used for the area of a digit crop that falls outside
+    the detected digit polygon (see extract_digit_image).
+
+    Precedence: FLOWVISION_DIGIT_PADDING env var > config.yaml
+    (digit_padding_color) > hardcoded default ('black', the original behaviour).
+    Read on each call so the value reflects the current environment.
+
+    The color classifier is sensitive to this padding: the original model was
+    trained on black-padded crops, while the finetuned v2 model classifies
+    tilted digits noticeably better with white padding. Keeping it switchable
+    lets both combinations be evaluated on production data without a code
+    change or rebuild.
+
+    An env value that is not 'black' or 'white' is ignored with a warning and
+    the config value is used, so a bad override never breaks color extraction.
+    """
+    config_default = CONFIG.get('digit_padding_color', 'black')
+    env_value = os.environ.get('FLOWVISION_DIGIT_PADDING')
+    if env_value is None:
+        return config_default
+    padding = env_value.strip().lower()
+    if padding not in ('black', 'white'):
+        base_logger.warning(
+            "Invalid FLOWVISION_DIGIT_PADDING=%r (expected 'black' or 'white'); "
+            "falling back to config value %s", env_value, config_default)
+        return config_default
+    return padding
+
+
 def classify_bfm_image(img, model=None, threshold=None):
     """
     Classify a Bulk Flow Meter image as good or bad.
@@ -451,29 +482,50 @@ def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
     return meter_reading, sorted_boxes, sorted_classes, rollover_positions
 
 # Function to extract digit image from its bounding box
-def extract_digit_image(image, box):
+def extract_digit_image(image, box, padding=None):
+    """
+    Crop a single detected digit out of the meter image.
+
+    YOLO returns an oriented (rotated) box, so the axis-aligned crop contains
+    corner regions that lie outside the digit polygon. Those regions are filled
+    with a flat padding color.
+
+    Args:
+        image: Full meter image as a BGR numpy array
+        box: Oriented bounding box as 4 polygon points
+        padding: 'black' or 'white'. Defaults to the FLOWVISION_DIGIT_PADDING
+                 env var, else config value digit_padding_color ('black' if
+                 neither is set).
+
+    Returns:
+        Cropped digit image as a BGR numpy array
+    """
+    if padding is None:
+        padding = get_digit_padding_color()
+
     # Get bounding rectangle for the polygon
     rect = cv2.boundingRect(box)
     x, y, w, h = rect
-    
+
     # Extract region from image
     cropped = image[y:y+h, x:x+w].copy()
-    
+
     # Create mask for the polygon
     mask = np.zeros(cropped.shape[:2], dtype=np.uint8)
-    
+
     # Shift polygon coordinates to the local rectangle
     shifted_box = box - np.array([x, y])
-    
+
     # Fill the polygon on the mask
     cv2.fillPoly(mask, [shifted_box], 255)
 
-    result = np.full_like(cropped, 255)          # white background
-    result[mask == 255] = cropped[mask == 255]
-    
-    # Apply mask to get only the digit (black background)
-    # result = cv2.bitwise_and(cropped, cropped, mask=mask)
-    
+    # Apply mask to get only the digit, padding the rest of the crop
+    if padding == 'white':
+        result = np.full_like(cropped, 255)
+        result[mask == 255] = cropped[mask == 255]
+    else:
+        result = cv2.bitwise_and(cropped, cropped, mask=mask)
+
     return result
 
 
