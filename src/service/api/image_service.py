@@ -24,8 +24,15 @@ from service.vision.inference_utils import (
     classify_bfm_image,
     direct_recognize_meter_reading,
     classify_color_image,
-    extract_digit_image
+    extract_digit_image,
+    RecognitionOutcome
 )
+
+# Placeholder values for `meterReading` when no numeric reading could be
+# extracted. Kept as strings rather than None so the field is always present in
+# the response body — see api-reference.md.
+NO_METER_READING = "No digits detected in the image"
+UNCLEAR_READING = "Image quality too poor for recognition"
 
 
 class ImageService:
@@ -71,24 +78,32 @@ class ImageService:
             if quality_status == 'good':
                 # Detect digits and get their bounding boxes
                 pil_image = Image.open(BytesIO(original_image))
-                meter_reading_result = direct_recognize_meter_reading(np.array(pil_image), self.individual_numbers_model)
-                # Expecting: meter_reading, sorted_boxes, sorted_classes, rollover_positions
-                if isinstance(meter_reading_result, tuple) and len(meter_reading_result) >= 4:
-                    meter_reading, sorted_boxes, sorted_classes, raw_rollover = meter_reading_result
-                elif isinstance(meter_reading_result, tuple) and len(meter_reading_result) >= 3:
-                    meter_reading, sorted_boxes, sorted_classes = meter_reading_result[:3]
+                recognition = direct_recognize_meter_reading(np.array(pil_image), self.individual_numbers_model)
+
+                if recognition.outcome is RecognitionOutcome.DIGITS_FOUND:
+                    meter_reading_status = Status.SUCCESS
+                    meter_reading_str = recognition.reading
+                    sorted_boxes = recognition.boxes
+                    raw_rollover = recognition.rollover_positions
+                elif recognition.outcome is RecognitionOutcome.NO_DIGITS:
+                    # Readable image with no digits in it — e.g. a photo of
+                    # something that is not a meter. A valid outcome, not an error.
+                    self.base_logger.info(
+                        "No digits detected for request %s: %s", request.id, recognition.detail)
+                    meter_reading_status = Status.NOMETER
+                    meter_reading_str = NO_METER_READING
+                    sorted_boxes = []
                     raw_rollover = []
                 else:
-                    meter_reading = meter_reading_result
-                    sorted_boxes, sorted_classes, raw_rollover = [], [], []
-
-                # Convert tuple to string if necessary
-                meter_reading_str = str(meter_reading[0]) if isinstance(meter_reading, tuple) else str(meter_reading)
+                    # INVALID_IMAGE — the bytes could not be decoded. Undecodable
+                    # images already fail earlier in download_image() and surface
+                    # as a 500, so keep this path consistent with that.
+                    raise ValueError(recognition.detail or "Image could not be decoded")
             else:
-                meter_reading_str = "Image quality too poor for recognition"
+                meter_reading_status = Status.UNCLEAR
+                meter_reading_str = UNCLEAR_READING
                 sorted_boxes = []
                 raw_rollover = []
-                meter_reading_status = Status.UNCLEAR
 
             processing_time = (datetime.now() - start_time).total_seconds()
 
@@ -114,13 +129,6 @@ class ImageService:
                 )
                 for rp in raw_rollover
             ]
-
-            if 'nometer' in meter_reading_str.lower():
-                meter_reading_status = Status.NOMETER
-            elif 'unclear' in meter_reading_str.lower() or quality_status == 'bad':
-                meter_reading_status = Status.UNCLEAR
-            else:
-                meter_reading_status = Status.SUCCESS
 
             result = ReadingExtractionResult(
                 status=meter_reading_status,

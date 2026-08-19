@@ -9,6 +9,10 @@ import cv2
 from ultralytics import YOLO
 import yaml
 
+# Imported after the fastai star import so these names are not shadowed by it.
+from dataclasses import dataclass, field
+from enum import StrEnum
+
 from conf.config import Config
 import logging
 
@@ -390,16 +394,46 @@ def remove_overlapping_boxes(boxes, classes, confidences, iou_threshold=0.5):
 
     return filtered_boxes, filtered_classes, filtered_confidences, rollover_pairs
 
+class RecognitionOutcome(StrEnum):
+    """
+    Why digit recognition ended the way it did.
+
+    Callers map these to API statuses; they must never infer the outcome from
+    the reading text itself.
+    """
+    DIGITS_FOUND = "DIGITS_FOUND"    # at least one digit was detected
+    NO_DIGITS = "NO_DIGITS"          # image was processed, zero digits found
+    INVALID_IMAGE = "INVALID_IMAGE"  # input could not be decoded at all
+
+
+@dataclass
+class DigitRecognitionResult:
+    """
+    Result of a digit recognition attempt.
+
+    `reading` and the box/class lists are only populated when `outcome` is
+    DIGITS_FOUND. `detail` carries a human-readable reason for logging and is
+    never surfaced in the API response.
+    """
+    outcome: RecognitionOutcome
+    reading: str | None = None
+    boxes: list = field(default_factory=list)
+    classes: list = field(default_factory=list)
+    rollover_positions: list = field(default_factory=list)
+    detail: str | None = None
+
+
 def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
     """
     Process image and directly recognize digits without meter detection
-    
+
     Args:
         image_path: Path to the input image or PIL Image object
         individual_numbers_model: Pre-loaded YOLO model (optional)
-    
+
     Returns:
-        Meter reading as a string
+        DigitRecognitionResult — always, on every path. Check `.outcome`
+        before reading `.reading`.
     """
     # Step 1: Load the image
     if isinstance(image_path, str):
@@ -411,10 +445,16 @@ def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
         else:
             image = image_path
     else:
-        return "Error: Invalid image input"
-        
+        return DigitRecognitionResult(
+            outcome=RecognitionOutcome.INVALID_IMAGE,
+            detail="Invalid image input"
+        )
+
     if image is None:
-        return "Error: Could not load image"
+        return DigitRecognitionResult(
+            outcome=RecognitionOutcome.INVALID_IMAGE,
+            detail="Could not load image"
+        )
     
     # Step 2: Enhance the image for better digit recognition
     enhanced_image = enhance_image(image)
@@ -458,7 +498,12 @@ def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
 
     # Step 5: Post-processing - sort the digits from left to right
     if not digit_boxes:
-        return "Error: No digits detected in the image"
+        # The image was readable but contains no digits — e.g. it is not a photo
+        # of a meter at all. This is a valid outcome, not an error.
+        return DigitRecognitionResult(
+            outcome=RecognitionOutcome.NO_DIGITS,
+            detail="No digits detected in the image"
+        )
 
     sorted_boxes, sorted_classes, sorted_confidences = sort_boxes_by_position(
         digit_boxes, digit_classes, digit_confidences
@@ -479,7 +524,13 @@ def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
     # Step 7: Extract the class labels and join them to form the digit sequence
     meter_reading = ''.join([str(cls) for cls in sorted_classes])
 
-    return meter_reading, sorted_boxes, sorted_classes, rollover_positions
+    return DigitRecognitionResult(
+        outcome=RecognitionOutcome.DIGITS_FOUND,
+        reading=meter_reading,
+        boxes=sorted_boxes,
+        classes=sorted_classes,
+        rollover_positions=rollover_positions
+    )
 
 # Function to extract digit image from its bounding box
 def extract_digit_image(image, box, padding=None):
@@ -578,8 +629,12 @@ if __name__ == "__main__":
     
     # Only proceed with digit detection if image is classified as "Good"
     if classification_result['prediction'].lower() == 'good':
-        meter_reading = direct_recognize_meter_reading(test_image_path)
-        extraction_logger.info("Detected meter reading: %s", meter_reading)
+        recognition = direct_recognize_meter_reading(test_image_path)
+        if recognition.outcome is RecognitionOutcome.DIGITS_FOUND:
+            extraction_logger.info("Detected meter reading: %s", recognition.reading)
+        else:
+            extraction_logger.info("No reading extracted (%s): %s",
+                                   recognition.outcome, recognition.detail)
     else:
         extraction_logger.info("Image classified as bad quality - skipping digit detection")
 

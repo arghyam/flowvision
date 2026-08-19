@@ -101,7 +101,7 @@ Extracts a meter reading from an image hosted at a given URL.
 
 | Field                                       | Type              | Description                                                                                                                                     |
 | ------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `meterReading`                              | `string`          | Raw digit string extracted from the meter (e.g. `"96733"`). No decimal adjustment is applied — the downstream system interprets fractional digits based on `lastDigitColor`. |
+| `meterReading`                              | `string`          | Raw digit string extracted from the meter (e.g. `"96733"`), when `status` is `SUCCESS`. No decimal adjustment is applied — the downstream system interprets fractional digits based on `lastDigitColor`. For non-`SUCCESS` statuses it carries a placeholder instead of a reading — see the note below. |
 | `hasRollover`                               | `boolean`         | `true` if one or more digit wheels were detected mid-rotation (between two digit positions).                                                    |
 | `rolloverPositions`                         | `array` \| absent | Present only when `hasRollover` is `true`. Each entry describes one rollover position. Omitted from response when there is no rollover.         |
 | `rolloverPositions[].position`              | `integer`         | 1-indexed position of the rollover digit in the reading, counted left to right.                                                                 |
@@ -115,7 +115,15 @@ Extracts a meter reading from an image hosted at a given URL.
 | `lastDigitColor`                            | `string`          | Detected color of the last digit wheel: `"red"`, `"black"`, or `"unknown"` (when no digits were detected).                                     |
 | `colorConfidence`                           | `float`           | Model confidence for the color classification (`0.0` – `1.0`).                                                                                 |
 
-> `data` is always present in the response regardless of `status`. When the meter is not detected or image quality is bad, `meterReading` will contain a descriptive string rather than a numeric value.
+> `data` is always present in the response regardless of `status`. `meterReading` only holds a real reading when `status` is `SUCCESS`; otherwise it carries a fixed placeholder string, never a number:
+>
+> | `status`  | `meterReading` value                        |
+> | --------- | ------------------------------------------- |
+> | `SUCCESS` | the extracted digit string, e.g. `"96733"`  |
+> | `NOMETER` | `"No digits detected in the image"`          |
+> | `UNCLEAR` | `"Image quality too poor for recognition"`  |
+>
+> Clients must branch on `status` and must not attempt to parse `meterReading` unless `status` is `SUCCESS`.
 
 **Example — successful reading with rollover**
 ```json
@@ -158,7 +166,7 @@ Extracts a meter reading from an image hosted at a given URL.
     "status": "NOMETER",
     "correlationId": "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
     "data": {
-      "meterReading": "nometer",
+      "meterReading": "No digits detected in the image",
       "hasRollover": false,
       "processingTime": 0.85,
       "qualityStatus": "good",
@@ -284,7 +292,7 @@ Same envelope as the extract-reading error response above.
 | Value     | Description                                         |
 | --------- | --------------------------------------------------- |
 | `SUCCESS` | Meter reading extracted successfully                |
-| `NOMETER` | No meter detected in the image                      |
+| `NOMETER` | Image passed the quality check but no digits were detected in it — e.g. the photo is not of a meter |
 | `UNCLEAR` | Image quality too poor to extract a reading         |
 
 ### Feedback Status (`result.status` in feedback)
