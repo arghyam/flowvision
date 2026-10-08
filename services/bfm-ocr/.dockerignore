@@ -4,3 +4,8 @@ Dockerfile
 .dockerignore
 .git
 
+venv
+.venv
+**/__pycache__
+**/*.pyc
+logs

@@ -21,9 +21,9 @@ RUN python -m venv $VIRTUAL_ENV
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+# Install from the hashed lock (regenerate it from requirements.txt; see README)
+COPY requirements.lock .
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 # =========================
 # Final Runtime Stage
