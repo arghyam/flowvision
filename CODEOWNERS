@@ -1,0 +1,14 @@
+# Code owners: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Placeholders only. Replace <team> with a GitHub user or team that has write
+# access (e.g. @arghyam/<team>), then uncomment. The last matching pattern wins.
+
+# *                     @arghyam/<default-team>
+
+# /services/bfm-ocr/    @arghyam/<bfm-team>
+# /services/elm-ocr/    @arghyam/<elm-team>
+
+# /libs/                @arghyam/<platform-team>
+# /templates/           @arghyam/<platform-team>
+# /docs/adr/            @arghyam/<platform-team>
+# /CODEOWNERS           @arghyam/<platform-team>

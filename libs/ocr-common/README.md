@@ -17,5 +17,5 @@ Code in this package must:
 
 No service depends on this package yet. Each service image is built with its own
 directory as the build context, so `libs/` is outside the context and invisible to the
-build. The first service that uses this package must change that, and the mechanism is
-chosen at that point.
+build. The first service that uses this package must change that. The options are listed in
+[ADR-001](../../docs/adr/ADR-001-multi-service-layout.md#deferred).

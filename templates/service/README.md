@@ -80,8 +80,8 @@ services/<meter>-ocr/
 - Configure the service through environment variables, using a prefix unique to the
   service (e.g. `ELM_`). Never commit secrets.
 - Each service owns its own PostgreSQL schema and role, and manages migrations with
-  Alembic. Never read or write another service's tables. ADR-001 records how this rolls
-  out.
+  Alembic. Never read or write another service's tables. See
+  [ADR-001](../../docs/adr/ADR-001-multi-service-layout.md#deferred) for the rollout.
 
 ## Tests
 
