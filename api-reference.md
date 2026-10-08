@@ -4,7 +4,7 @@ This document provides a comprehensive reference for the FlowVision REST API, in
 
 ### API Overview <a href="#api-overview" id="api-overview"></a>
 
-The FlowVision API is built using FastAPI and exposes a RESTful interface at the base path `/flowvision/v1`. The API follows a three-phase workflow: image upload, reading extraction, and optional feedback submission.
+The FlowVision API is built using FastAPI and exposes a RESTful interface at the base path `/flowvision/v1/bfm`. The original base path `/flowvision/v1` serves the same endpoints for existing clients. The API follows a three-phase workflow: image upload, reading extraction, and optional feedback submission.
 
 #### API Architecture <a href="#api-architecture" id="api-architecture"></a>
 

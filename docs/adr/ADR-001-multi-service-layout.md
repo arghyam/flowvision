@@ -15,8 +15,8 @@ The following constraints shaped the decision:
 - Kubernetes manifests live in a separate repository, and deploys are manual.
 - There is no test suite and no CI.
 - The BFM image is about 7.5 GB, and its build downloads about 3 GB of CUDA wheels.
-- Restructuring must not change how BFM behaves: not its API, its base path, its database
-  table or its responses.
+- Restructuring must not change how BFM behaves for existing clients: their paths, the
+  database table and the responses stay the same.
 
 ## Decision
 
@@ -40,12 +40,15 @@ The following constraints shaped the decision:
 4. **Shared code only when two services need it.** `libs/ocr-common` starts empty.
 5. **BFM moved as-is.** It was moved with `git mv` (every file a 100% rename). The only
    other changes fix the build: a hashed lock, and a Dockerfile fix for directory
-   ownership under the legacy builder. The API, the base path `/flowvision/v1`, the
-   database table and the behaviour are unchanged.
-6. **The GitBook docs stay at the root** (`README.md`, `SUMMARY.md`, `.gitbook/` and the
+   ownership under the legacy builder. Its behaviour, its existing paths and its database
+   table are unchanged.
+6. **BFM is also served under `/flowvision/v1/bfm`.** The same routes are mounted under
+   both `/flowvision/v1` (existing clients) and `/flowvision/v1/bfm`, the per-meter
+   prefix that new services use. Both paths return identical responses.
+7. **The GitBook docs stay at the root** (`README.md`, `SUMMARY.md`, `.gitbook/` and the
    rest). They are stale and were not updated by this change.
-7. **No `deploy/` folder.** Deployment config stays in the Kubernetes repository.
-8. **No CI yet.** It would have no tests to run, deploys are manual, and the BFM build is
+8. **No `deploy/` folder.** Deployment config stays in the Kubernetes repository.
+9. **No CI yet.** It would have no tests to run, deploys are manual, and the BFM build is
    too heavy to run on every push. CI will be added together with golden-image tests.
 
 New services follow [templates/service/README.md](../../templates/service/README.md).
@@ -58,7 +61,14 @@ elsewhere.
 - **BFM image build.** Build BFM with `docker build services/bfm-ocr`, not from the repo
   root. Update any build script or runbook that points at the old root `Dockerfile`.
   The image's behaviour, port (8000) and environment variables are unchanged.
-- **BFM ingress.** No change. `/flowvision/v1` keeps routing to BFM.
+- **BFM ingress.** If the existing rule is `pathType: Prefix` on `/flowvision/v1` with no
+  rewrite, it already sends `/flowvision/v1/bfm/...` to BFM, and nothing is strictly
+  required. Add an explicit `/flowvision/v1/bfm` rule anyway, so the new path does not
+  depend on the catch-all.
+- **Deploy order for BFM.** The ingress change and the new image can ship in either
+  order. Until the image ships, `/bfm` paths return 404 from the old image, which is
+  harmless because no client calls them yet. Move clients to `/bfm` only once both are
+  live.
 - **ELM deployment**, needed once ELM serves real endpoints:
   - Add a Deployment and a Service for the `elm-ocr` image, with container port 8000.
   - Point the liveness and readiness probes at `GET /health`. Probes reach the pod
@@ -74,12 +84,20 @@ elsewhere.
 
 These are agreed directions, left out of this change so BFM's behaviour stays unchanged.
 
-1. **BFM paths and health.**
-   - Serve BFM under both `/flowvision/v1` (existing clients) and `/flowvision/v1/bfm`
-     (the per-meter prefix), and add `GET /health`.
-   - Then add an ingress rule for `/flowvision/v1/bfm`, move clients to it, and
-     deprecate the bare path.
-   - Until `/health` exists, BFM probes can use `GET /`.
+1. **BFM health and client migration.**
+   - Add `GET /health` only after BFM's routes stop blocking the event loop. They are
+     `async def` but run the image download and inference synchronously, so a worker
+     that is busy with a request cannot answer anything else, and an HTTP probe on it
+     times out under load. First make the routes plain `def` (FastAPI then runs them in
+     a thread pool) or move the blocking work off the loop.
+   - Until then, configure the BFM probes like this:
+     - **Startup probe:** `GET /`, with a failure threshold long enough to cover model
+       loading. The pod gets no traffic before it is ready, so nothing blocks the probe.
+     - **Liveness and readiness probes:** `tcpSocket` on port 8000. Gunicorn's worker
+       timeout (`TIMEOUT`) already restarts hung workers.
+     - Never use `GET /` for liveness or readiness. Busy workers fail it, so under load
+       Kubernetes would restart pods or remove them from the Service.
+   - Move clients to `/flowvision/v1/bfm`, then deprecate the bare `/flowvision/v1` path.
 2. **Database schema per service.**
    - BFM stays in `public`, with the table `flowvision_extraction_data`. Moving it would
      need a data migration and code changes for no gain.

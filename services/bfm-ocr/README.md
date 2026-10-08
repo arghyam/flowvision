@@ -14,7 +14,8 @@ pip install -r requirements.lock
 python src/run.py            # uvicorn on :8000
 ```
 
-Endpoints (base path `/flowvision/v1`):
+Endpoints, served under both `/flowvision/v1/bfm` (use this for new clients) and the original
+`/flowvision/v1` (existing clients):
 
 - `POST /extract-reading`
 - `POST /feedback`
