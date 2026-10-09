@@ -1,30 +1,22 @@
 # API Reference
 
-This document provides a comprehensive reference for the FlowVision REST API, including endpoint specifications, request/response formats, authentication, and error handling patterns. The API enables external clients to upload images and extract meter readings using AI-powered vision services.
+This document provides a comprehensive reference for the FlowVision REST API, including endpoint specifications, request/response formats, authentication, and error handling patterns. The API enables external clients to extract meter readings from images hosted at a URL using AI-powered vision services.
 
 ### API Overview <a href="#api-overview" id="api-overview"></a>
 
-The FlowVision API is built using FastAPI and exposes a RESTful interface at the base path `/flowvision/v1`. The API follows a three-phase workflow: image upload, reading extraction, and optional feedback submission.
-
-#### API Architecture <a href="#api-architecture" id="api-architecture"></a>
-
-<figure><img src=".gitbook/assets/Screenshot 2025-07-28 at 2.40.30 PM.png" alt=""><figcaption></figcaption></figure>
-
-
-#### Request/Response Flow <a href="#requestresponse-flow" id="requestresponse-flow"></a>
-
-<figure><img src=".gitbook/assets/Screenshot 2025-07-28 at 2.40.59 PM.png" alt=""><figcaption></figcaption></figure>
+The FlowVision API is built using FastAPI and exposes a RESTful interface at the base path `/flowvision/v1/bfm`. The original base path `/flowvision/v1` serves the same endpoints for existing clients. The API follows a two-phase workflow: reading extraction from an image URL, and optional feedback submission linked to the extraction by its `correlationId`.
 
 ---
 
 ## Endpoints
 
-| Method | Path                             | Description                               |
-| ------ | -------------------------------- | ----------------------------------------- |
-| GET    | `/`                              | Health check                              |
-| POST   | `/flowvision/v1/uploadImage`     | Upload image to S3 and get presigned URL  |
-| POST   | `/flowvision/v1/extract-reading` | Extract meter reading from an image URL   |
-| POST   | `/flowvision/v1/feedback`        | Submit accuracy feedback for a reading    |
+Each POST endpoint is served under both base paths: `/flowvision/v1/bfm` for new clients and `/flowvision/v1` for existing clients. Requests and responses are identical on both.
+
+| Method | Path                                                                     | Description                             |
+| ------ | ------------------------------------------------------------------------ | --------------------------------------- |
+| GET    | `/`                                                                      | Health check                            |
+| POST   | `/flowvision/v1/bfm/extract-reading`<br>`/flowvision/v1/extract-reading` | Extract meter reading from an image URL |
+| POST   | `/flowvision/v1/bfm/feedback`<br>`/flowvision/v1/feedback`               | Submit accuracy feedback for a reading  |
 
 ---
 
@@ -41,17 +33,9 @@ Returns API health status.
 
 ---
 
-## POST `/flowvision/v1/uploadImage`
+## POST `/flowvision/v1/bfm/extract-reading`
 
-Uploads an image to S3 and returns a presigned URL for use in the extraction endpoint.
-
-**Request Format:** `multipart/form-data` with `ImageUploadRequest` model
-
-**Response:** Returns S3 presigned URL with 60-second expiry for subsequent extraction requests.
-
----
-
-## POST `/flowvision/v1/extract-reading`
+Also served at `/flowvision/v1/extract-reading` for existing clients.
 
 Extracts a meter reading from an image hosted at a given URL.
 
@@ -214,7 +198,9 @@ Returned by FastAPI when the request body fails schema validation.
 
 ---
 
-## POST `/flowvision/v1/feedback`
+## POST `/flowvision/v1/bfm/feedback`
+
+Also served at `/flowvision/v1/feedback` for existing clients.
 
 Submits human accuracy feedback for a previously extracted reading, linked via `correlationId`.
 
@@ -329,5 +315,4 @@ The FastAPI application initializes core services at startup:
 | Service          | Purpose                                        | Configuration                              |
 | ---------------- | ---------------------------------------------- | ------------------------------------------ |
 | `ImageService`   | Orchestrates meter reading extraction workflow | Uses `Config` for vision service selection |
-| `StorageService` | Manages S3 image uploads and presigned URLs    | Configured via AWS credentials             |
 | `Config`         | Centralized configuration management           | Loads from `config.yaml` and environment   |

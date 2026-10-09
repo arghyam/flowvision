@@ -1,0 +1,6 @@
+# Allowlist: send only what the image needs to the build context
+*
+!requirements.lock
+!src/
+**/__pycache__
+**/*.pyc

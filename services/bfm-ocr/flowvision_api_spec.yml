@@ -2,13 +2,18 @@ openapi: 3.1.0
 info:
   title: JJM Meter Reading Extraction API(s)
   description: >-
-    Set of API specifications for extracting meter reading from an image
-    `/flowvision/v1`.
+    Set of API specifications for extracting meter reading from an image.
+    Every endpoint is served under both base paths listed in `servers`.
   version: v1
   x-logo:
     url: https://fastapi.tiangolo.com/img/logo-margin/logo-teal.png
+servers:
+  - url: /flowvision/v1/bfm
+    description: Per-meter base path. Use this for new clients.
+  - url: /flowvision/v1
+    description: Original base path, kept for existing clients.
 paths:
-  /flowvision/v1/extract-reading:
+  /extract-reading:
     post:
       tags:
         - image-handlers
@@ -64,7 +69,7 @@ paths:
                 error:
                   errorCode: ERR_READING_EXTRACTION_FAILED
                   errorMsg: Failed to extract meter reading
-  /flowvision/v1/feedback:
+  /feedback:
     post:
       tags:
         - feedback

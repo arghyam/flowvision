@@ -1,0 +1,7 @@
+# Images under src/data/ are large binaries — track only CSVs and .gitkeep
+src/data/**/*.jpg
+src/data/**/*.jpeg
+src/data/**/*.png
+
+# Training checkpoint files — large, not needed in git
+training/*/models/*.pth
