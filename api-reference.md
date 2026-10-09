@@ -10,11 +10,13 @@ The FlowVision API is built using FastAPI and exposes a RESTful interface at the
 
 ## Endpoints
 
-| Method | Path                             | Description                               |
-| ------ | -------------------------------- | ----------------------------------------- |
-| GET    | `/`                              | Health check                              |
-| POST   | `/flowvision/v1/extract-reading` | Extract meter reading from an image URL   |
-| POST   | `/flowvision/v1/feedback`        | Submit accuracy feedback for a reading    |
+Each POST endpoint is served under both base paths: `/flowvision/v1/bfm` for new clients and `/flowvision/v1` for existing clients. Requests and responses are identical on both.
+
+| Method | Path                                                                     | Description                             |
+| ------ | ------------------------------------------------------------------------ | --------------------------------------- |
+| GET    | `/`                                                                      | Health check                            |
+| POST   | `/flowvision/v1/bfm/extract-reading`<br>`/flowvision/v1/extract-reading` | Extract meter reading from an image URL |
+| POST   | `/flowvision/v1/bfm/feedback`<br>`/flowvision/v1/feedback`               | Submit accuracy feedback for a reading  |
 
 ---
 
@@ -31,7 +33,9 @@ Returns API health status.
 
 ---
 
-## POST `/flowvision/v1/extract-reading`
+## POST `/flowvision/v1/bfm/extract-reading`
+
+Also served at `/flowvision/v1/extract-reading` for existing clients.
 
 Extracts a meter reading from an image hosted at a given URL.
 
@@ -194,7 +198,9 @@ Returned by FastAPI when the request body fails schema validation.
 
 ---
 
-## POST `/flowvision/v1/feedback`
+## POST `/flowvision/v1/bfm/feedback`
+
+Also served at `/flowvision/v1/feedback` for existing clients.
 
 Submits human accuracy feedback for a previously extracted reading, linked via `correlationId`.
 
