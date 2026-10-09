@@ -26,9 +26,28 @@ database:
 
 # Model paths
 models:
-  bfm_classification: "src/models/bfm_fastai"
+  bfm_classification: "src/models/bfm_fastai_v2"
   individual_numbers: "src/models/individual_number_recognition_yolo11l.pt"
-  color_classification: "src/models/color_classification_fastai"
+  color_classification: "src/models/color_classification_fastai_v2"
+
+# Minimum P(good) required to classify an image as good quality.
+# Images below this threshold are classified as bad and returned as UNCLEAR.
+# Sweep results on 1076 test images: 0.65 gives the best accuracy/recall balance.
+# Override at deploy time (no rebuild needed) with the FLOWVISION_QUALITY_THRESHOLD
+# env var, e.g. FLOWVISION_QUALITY_THRESHOLD=0.7; must be a float in [0, 1].
+quality_threshold: 0.65
+
+# Fill color for the parts of a digit crop that fall outside the detected digit
+# polygon. YOLO returns oriented boxes, so a tilted digit leaves triangular
+# corner regions in the axis-aligned crop that get padded with this color before
+# the crop goes to the color classifier. One of: black | white.
+#   black -> original behaviour; what color_classification_fastai (v1) expects.
+#   white -> what color_classification_fastai_v2 expects; markedly better on
+#            tilted digits, which is where v2 was regressing against v1.
+# Keep this paired with models.color_classification (v1 + black, v2 + white).
+# Override at deploy time (no rebuild needed) with the FLOWVISION_DIGIT_PADDING
+# env var, e.g. FLOWVISION_DIGIT_PADDING=black.
+digit_padding_color: white
 
 # Image processing parameters
 image_enhancement:
