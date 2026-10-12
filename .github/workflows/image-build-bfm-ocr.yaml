@@ -53,5 +53,5 @@ jobs:
           ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
           IMAGE_TAG: ${{ steps.image.outputs.tag }}
         run: |
-          docker build -t "$ECR_REGISTRY/flowvision:$IMAGE_TAG" services/bfm-ocr
-          docker push "$ECR_REGISTRY/flowvision:$IMAGE_TAG"
+          docker build -t "$ECR_REGISTRY/arghyam/flowvision:$IMAGE_TAG" services/bfm-ocr
+          docker push "$ECR_REGISTRY/arghyam/flowvision:$IMAGE_TAG"
