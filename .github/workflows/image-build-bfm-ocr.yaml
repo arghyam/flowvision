@@ -1,0 +1,57 @@
+name: Build and publish bfm-ocr image
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_REGION:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    name: Build and push bfm-ocr image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: image
+        shell: bash
+        run: |
+          branch_name="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          branch_name="${branch_name//\//-}"
+          echo "tag=${branch_name}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          docker build -t "$ECR_REGISTRY/flowvision:$IMAGE_TAG" services/bfm-ocr
+          docker push "$ECR_REGISTRY/flowvision:$IMAGE_TAG"
