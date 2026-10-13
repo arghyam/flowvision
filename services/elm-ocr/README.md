@@ -18,11 +18,11 @@ The API under `/flowvision/v1/elm` (and, for existing clients, `/meter-reader/v1
 
 ## Quick start
 
-Requirements: Python 3.13 (3.12 works) and an OpenAI API key with GPT-6 Sol access. From this directory (`services/elm-ocr`):
+Requirements: Python 3.12 and an OpenAI API key with GPT-6 Sol access. From this directory (`services/elm-ocr`):
 
 ```bash
 cp .env.example .env                  # put OPENAI_API_KEY in it
-pip install -r requirements.txt       # every package pinned; requirements-dev.txt adds the test tools
+pip install --require-hashes -r requirements.lock   # pinned with hashes, as in the image
 python src/run.py                     # development server: http://localhost:8000, API docs at /docs
 ```
 

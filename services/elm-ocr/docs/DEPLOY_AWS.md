@@ -79,13 +79,13 @@ Database settings (all but `METER_DB_URL` are optional; the defaults suit RDS, a
 
 ## 3b. Option B: EC2 with systemd (the FlowVision way)
 
-On an Ubuntu instance with an instance profile (Python 3.13 from the deadsnakes PPA, or 3.12), as a dedicated user without sudo:
+On an Ubuntu instance with an instance profile (Python 3.12, the default on Ubuntu 24.04), as a dedicated user without sudo:
 ```bash
 sudo useradd --system --create-home --home-dir /opt/meter-reader meterreader
 sudo -u meterreader git clone https://github.com/arghyam/flowvision.git /opt/meter-reader/src-repo
 sudo ln -s /opt/meter-reader/src-repo/services/elm-ocr /opt/meter-reader/meter_reader_service
-sudo -u meterreader python3.13 -m venv /opt/meter-reader/venv
-sudo -u meterreader /opt/meter-reader/venv/bin/pip install -r /opt/meter-reader/meter_reader_service/requirements.txt
+sudo -u meterreader python3.12 -m venv /opt/meter-reader/venv
+sudo -u meterreader /opt/meter-reader/venv/bin/pip install --require-hashes -r /opt/meter-reader/meter_reader_service/requirements.lock
 sudo -u meterreader mkdir -p /opt/meter-reader/meter_reader_service/data /opt/meter-reader/meter_reader_service/logs
 sudo install -m 600 /dev/null /etc/meter-reader.env && sudoedit /etc/meter-reader.env    # the variables from section 2
 sudo cp /opt/meter-reader/meter_reader_service/meter_reader.service /etc/systemd/system/
