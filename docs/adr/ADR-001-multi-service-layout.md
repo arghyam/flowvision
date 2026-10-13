@@ -48,8 +48,11 @@ The following constraints shaped the decision:
 7. **The GitBook docs stay at the root** (`README.md`, `SUMMARY.md`, `.gitbook/` and the
    rest). They are stale and were not updated by this change.
 8. **No `deploy/` folder.** Deployment config stays in the Kubernetes repository.
-9. **No CI yet.** It would have no tests to run, deploys are manual, and the BFM build is
-   too heavy to run on every push. CI will be added together with golden-image tests.
+9. **Per-service image builds.** Each service has its own GitHub Actions workflow
+   (`.github/workflows/image-build-<service>.yaml`) that runs only when that service's folder
+   or its workflow changes, and pushes the image to ECR on `main`. ELM's workflow first runs
+   its test suite (on PostgreSQL) and also runs it, without pushing, on pull requests. BFM
+   has no tests yet. Deploys stay manual.
 
 New services follow [templates/service/README.md](../../templates/service/README.md).
 
@@ -69,16 +72,35 @@ elsewhere.
   order. Until the image ships, `/bfm` paths return 404 from the old image, which is
   harmless because no client calls them yet. Move clients to `/bfm` only once both are
   live.
-- **ELM deployment**, needed once ELM serves real endpoints:
-  - Add a Deployment and a Service for the `elm-ocr` image, with container port 8000.
-  - Point the liveness and readiness probes at `GET /health`. Probes reach the pod
-    directly, so `/health` does not need an ingress rule.
-  - Set `securityContext.runAsNonRoot: true`. The image runs as UID 10001.
-  - Run one uvicorn process per pod and scale with replicas.
+- **ELM deployment.** ELM serves real endpoints; its settings are in
+  [services/elm-ocr/.env.example](../../services/elm-ocr/.env.example).
+  - Add a Deployment and a Service for the ELM image (ECR repository `meter-reader`), with
+    container port 8000.
+  - Point the liveness probe at `GET /health` and the readiness probe at `GET /ready`, which
+    also checks the database. Probes reach the pod directly, so neither needs an ingress rule.
+  - Set `securityContext.runAsNonRoot: true`. The image runs as `10001:10001`. It also runs
+    with `readOnlyRootFilesystem: true` when `/tmp` is an `emptyDir`.
+  - Set `WORKERS=1` (one process per pod) and scale with replicas.
+  - Set `terminationGracePeriodSeconds` to at least 130, so in-flight readings (up to 100 s)
+    finish on rollout.
+  - Set `METER_ENV=production`, which makes the pod refuse to start until the required
+    settings are present. Take `OPENAI_API_KEY`, `METER_SERVICE_API_KEY`, `METER_DB_URL` and
+    `METER_IMAGE_URL_HEADERS` (if used) from a Secret. Set `METER_IMAGE_DIR` and
+    `METER_IMAGE_URL_ALLOWED_HOSTS` as plain environment variables.
+  - ELM creates and extends its own tables (`meter_reader_*`) on startup, so its role needs
+    to own them. To place them in the `elm` schema (Deferred, item 2), run
+    `ALTER ROLE <elm role> SET search_path = elm`. A search path set in `METER_DB_URL`'s
+    `options` is overridden by the service's own connection options.
 - **ELM ingress.** Add a `pathType: Prefix` rule that sends `/flowvision/v1/elm` to the
   ELM Service. The longest matching prefix wins, so this rule takes precedence over BFM's
   `/flowvision/v1`. Until the ELM rule exists, BFM's rule also catches ELM paths.
   ELM serves its full path itself, so the rule needs no rewrite.
+  - ELM also serves the same API under `/meter-reader/v1`, its path before this layout.
+    Add a rule for that prefix only if existing clients will reach ELM through this ingress.
+  - A reading can take up to 100 s, and a request body up to 30 MB (a base64 photo). Raise
+    the ingress limits to match. With ingress-nginx, the defaults (60 s, 1 MB) are too low:
+    set `nginx.ingress.kubernetes.io/proxy-read-timeout: "120"`,
+    `proxy-send-timeout: "120"` and `proxy-body-size: "30m"`.
 
 ## Deferred
 
@@ -112,7 +134,7 @@ These are agreed directions, left out of this change so BFM's behaviour stays un
      3. From then on, change the schema only through revisions.
    - ELM uses Alembic from its first table. Its version table goes in the `elm` schema
      (`version_table_schema`), so it does not collide with BFM's `public.alembic_version`.
-4. **CI, together with golden-image tests** for reading accuracy.
+4. **Golden-image tests** for reading accuracy, run in CI, and tests for BFM.
 5. **How services consume `libs/ocr-common`.** Decide when the first code moves there.
    The options:
    - build from the repo root with `-f services/<svc>/Dockerfile`. This needs a root
