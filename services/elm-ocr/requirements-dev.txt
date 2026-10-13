@@ -1,3 +1,4 @@
--r requirements.txt
+# Test tools, installed in a second step on top of the hashed lock (one pip call would require hashes for these too):
+#   pip install --require-hashes -r requirements.lock && pip install -r requirements-dev.txt
 pytest==9.1.1
 httpx==0.28.1

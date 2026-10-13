@@ -9,7 +9,12 @@ app_server:
   port: 8000
   app: "routes:app"
 
-basepath: "/meter-reader/v1"
+# The API is served under each of these prefixes, with identical routes and responses (as FlowVision's BFM service
+# is). The first is the per-meter prefix the shared FlowVision ingress routes to this service; /meter-reader/v1 stays
+# for existing clients until they move.
+basepaths:
+  - "/flowvision/v1/elm"
+  - "/meter-reader/v1"
 
 # Logs go to stdout (one line per record; METER_LOG_FORMAT=json|text) and, unless METER_LOG_TO_FILES=false, to these
 # daily-rotated files (relative paths are under meter_reader_service/), kept METER_LOG_RETENTION_DAYS days (30).

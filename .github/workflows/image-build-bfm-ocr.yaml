@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+    paths:
+      - services/bfm-ocr/**
+      - .github/workflows/image-build-bfm-ocr.yaml
   workflow_dispatch:
   workflow_call:
     secrets:

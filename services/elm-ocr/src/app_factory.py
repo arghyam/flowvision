@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import anyio
-from fastapi import Depends, FastAPI, File, Form, Header, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
@@ -88,7 +88,7 @@ class RequestGate:
     (`inflight_limit` bytes, counted by Content-Length, a body without one as `limit`): one more is refused with 503
     "busy, retry" before it is read, so a burst of large photos cannot run the worker out of memory."""
 
-    def __init__(self, app, limit: int, reply, deny, protected_prefix: str, key_ok, inflight_limit: int = 0,
+    def __init__(self, app, limit: int, reply, deny, protected_prefix: tuple[str, ...], key_ok, inflight_limit: int = 0,
                  busy=None, reading_paths=(), stalled=None):
         self.app, self.limit, self.reply, self.deny, self.stalled = app, limit, reply, deny, stalled
         self.protected_prefix, self.key_ok = protected_prefix, key_ok
@@ -199,7 +199,9 @@ def create_app(config: Config | None = None, reader: MeterReader | None = None, 
              image_store.describe() if image_store else "not kept", service_path("logs"),
              settings.request_deadline, settings.max_concurrent_reads,
              f" | daily budget ${settings.daily_budget_usd:.2f}" if settings.daily_budget_usd else "")
-    basepath = config.find("basepath", "/meter-reader/v1").rstrip("/")
+    # every API route is served under each base path (a config file that names a single `basepath` still works)
+    basepaths = [p.rstrip("/") for p in config.find("basepaths") or [config.find("basepath", "/flowvision/v1/elm")]]
+    reading_paths = {f"{p}/extract-reading{suffix}" for p in basepaths for suffix in ("", "/upload")}
 
     def envelope(response: BaseResponse, headers: dict | None = None) -> JSONResponse:
         status = 200 if settings.errors_as_http_200 else response.statusCode
@@ -250,7 +252,7 @@ def create_app(config: Config | None = None, reader: MeterReader | None = None, 
                   openapi_url="/openapi.json" if docs else None)
     app.state.service = service
     app.state.admission = admission
-    auth = [Depends(require_key)]
+    router = APIRouter(dependencies=[Depends(require_key)])
 
     async def too_large(scope, receive, send):
         await error_reply(413, ErrorCode.FILE_SIZE_ERROR,
@@ -271,9 +273,8 @@ def create_app(config: Config | None = None, reader: MeterReader | None = None, 
                           retryable=True, headers={"Retry-After": "10"})(scope, receive, send)
 
     app.add_middleware(RequestGate, limit=settings.max_body_bytes, reply=too_large, deny=unauthorized,
-                       protected_prefix=basepath + "/", key_ok=key_ok, stalled=stalled_body,
-                       inflight_limit=settings.max_inflight_body_bytes, busy=busy_bodies,
-                       reading_paths=(f"{basepath}/extract-reading", f"{basepath}/extract-reading/upload"))
+                       protected_prefix=tuple(p + "/" for p in basepaths), key_ok=key_ok, stalled=stalled_body,
+                       inflight_limit=settings.max_inflight_body_bytes, busy=busy_bodies, reading_paths=reading_paths)
 
     @app.exception_handler(CustomHTTPException)
     async def custom_error(request, exc: CustomHTTPException):
@@ -287,7 +288,7 @@ def create_app(config: Config | None = None, reader: MeterReader | None = None, 
         body = _form_body(exc.body)
         request_id = caller_id(body.get("id") if body else None)
         response = service.error(request_id or str(uuid4()), 400, ErrorCode.INVALID_REQUEST_ERROR, detail, log=False)
-        if request_id and request.url.path in (f"{basepath}/extract-reading", f"{basepath}/extract-reading/upload"):
+        if request_id and request.url.path in reading_paths:
             await run_in_threadpool(service.record_rejected, request_id, body, response)
         return envelope(response)
 
@@ -334,14 +335,12 @@ def create_app(config: Config | None = None, reader: MeterReader | None = None, 
                 "readSlots": service.slots.size}
 
     # ---- readings ----
-    @app.post(f"{basepath}/extract-reading", response_model=ReadingExtractionResponse,
-              response_model_exclude_none=True, dependencies=auth)
+    @router.post("/extract-reading", response_model=ReadingExtractionResponse, response_model_exclude_none=True)
     async def extract_reading(request: ReadingExtractionRequest):
         """Read one meter photo: send `imageURL` (downloaded by the service) or `imageBase64`, plus the details."""
         return await admitted(service.extract_reading, request, None, time.monotonic())
 
-    @app.post(f"{basepath}/extract-reading/upload", response_model=ReadingExtractionResponse,
-              response_model_exclude_none=True, dependencies=auth)
+    @router.post("/extract-reading/upload", response_model=ReadingExtractionResponse, response_model_exclude_none=True)
     async def extract_reading_upload(image: UploadFile = File(...), id: str | None = Form(None),
                                      consumerId: str | None = Form(None), capturedAt: str | None = Form(None),
                                      previousValue: str | None = Form(None), previousUnit: str | None = Form(None),
@@ -384,7 +383,7 @@ def create_app(config: Config | None = None, reader: MeterReader | None = None, 
             return envelope(response)
         return await admitted(service.extract_reading, request, image_bytes, arrived)
 
-    @app.get(f"{basepath}/readings/{{record_id}}", dependencies=auth)
+    @router.get("/readings/{record_id}")
     def get_reading(record_id: str):
         """The stored record of one request (by request id or correlationId)."""
         row = service.metadata_store.get_record(record_id)
@@ -394,7 +393,7 @@ def create_app(config: Config | None = None, reader: MeterReader | None = None, 
                 "statusCode": 200,
                 "result": {k: (_utc(v).isoformat() if hasattr(v, "isoformat") else v) for k, v in row.items()}}
 
-    @app.get(f"{basepath}/readings/{{record_id}}/image", dependencies=auth)
+    @router.get("/readings/{record_id}/image")
     def get_reading_image(record_id: str):
         """The photo of one request."""
         row = service.metadata_store.get_record(record_id)
@@ -404,26 +403,24 @@ def create_app(config: Config | None = None, reader: MeterReader | None = None, 
             return error_reply(404, ErrorCode.NOT_FOUND_ERROR, "No saved photo for this request or correlation ID.")
         return Response(content=data, media_type=media_type(name))
 
-    @app.post(f"{basepath}/feedback", response_model=FeedbackResponse, response_model_exclude_none=True,
-              dependencies=auth)
+    @router.post("/feedback", response_model=FeedbackResponse, response_model_exclude_none=True)
     def log_feedback(request: FeedbackRequest):
         """Confirm (`accurate: true`) or correct (`actual`) a returned reading, by its correlationId."""
         return envelope(*service.log_feedback(request))
 
     # ---- meter settings ----
-    @app.get(f"{basepath}/meters/{{consumer_id:path}}", response_model=MeterProfileResponse,
-             response_model_exclude_none=True, dependencies=auth)
+    @router.get("/meters/{consumer_id:path}", response_model=MeterProfileResponse, response_model_exclude_none=True)
     def get_meter(consumer_id: str):
         return envelope(service.get_profile(consumer_id))
 
-    @app.put(f"{basepath}/meters/{{consumer_id:path}}", response_model=MeterProfileResponse,
-             response_model_exclude_none=True, dependencies=auth)
+    @router.put("/meters/{consumer_id:path}", response_model=MeterProfileResponse, response_model_exclude_none=True)
     def put_meter(consumer_id: str, request: MeterProfileRequest):
         return envelope(service.set_profile(consumer_id, request))
 
-    @app.get(f"{basepath}/meter-types", response_model=MeterTypesResponse, response_model_exclude_none=True,
-             dependencies=auth)
+    @router.get("/meter-types", response_model=MeterTypesResponse, response_model_exclude_none=True)
     def meter_types():
         return envelope(service.meter_types())
 
+    for prefix in basepaths:
+        app.include_router(router, prefix=prefix)
     return app
