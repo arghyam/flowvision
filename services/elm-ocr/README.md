@@ -14,7 +14,7 @@ Reads the cumulative energy reading (kWh or kVAh) from a photo of a digital elec
 | `NOMETER` | `RETAKE` | No meter display is visible; `meterReading` then holds a short explanation. |
 | `NEEDS_REVIEW` | `REVIEW` | The photo looked fine, but the reading failed a consistency check (digit count, decimal point, previous reading). |
 
-The API under `/meter-reader/v1` uses FlowVision's envelope (`id` / `ts` / `responseCode` / `statusCode` / `result` or `error`) for every response, errors included (except the saved photo itself; `/`, `/health` and `/ready` answer with plain JSON), along with FlowVision's statuses, feedback format, config, logging, error codes, validation and database components.
+The API under `/flowvision/v1/elm` (and, for existing clients, `/meter-reader/v1`) uses FlowVision's envelope (`id` / `ts` / `responseCode` / `statusCode` / `result` or `error`) for every response, errors included (except the saved photo itself; `/`, `/health` and `/ready` answer with plain JSON), along with FlowVision's statuses, feedback format, config, logging, error codes, validation and database components.
 
 ## Quick start
 
@@ -67,7 +67,7 @@ These protections are always on:
 
 ## Connecting the other system
 
-The central system calls `POST /meter-reader/v1/extract-reading` for each photo with:
+The central system calls `POST /flowvision/v1/elm/extract-reading` for each photo with:
 - `imageURL` (downloaded by the service) or `imageBase64`;
 - its own `id`;
 - `consumerId`, `capturedAt`, and any other details, which are stored with the reading.
@@ -95,7 +95,7 @@ Failed requests are stored with status `ERROR`. Tables, columns and indexes are 
 
 ## API
 
-The base path is `/meter-reader/v1`. When `METER_SERVICE_API_KEY` is set, every endpoint under `/meter-reader/v1` needs the header `X-API-Key`; `/`, `/health`, `/ready` and the API docs (when enabled; off in production) do not.
+The base path is `/flowvision/v1/elm`, the per-meter prefix the shared FlowVision ingress routes to this service. Every endpoint is also served, unchanged, under `/meter-reader/v1` for existing clients (`basepaths` in config.yaml; the same pattern as BFM's two prefixes). When `METER_SERVICE_API_KEY` is set, every endpoint under either base path needs the header `X-API-Key`; `/`, `/health`, `/ready` and the API docs (when enabled; off in production) do not.
 
 | Endpoint | |
 |---|---|
@@ -182,7 +182,7 @@ All settings are in `src/conf/config.yaml` (or the file named by `CONFIG_PATH`),
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q                               # 222 tests, fake model, no cost (3 run only on PostgreSQL)
+python -m pytest -q                               # 223 tests, fake model, no cost (3 run only on PostgreSQL)
 METER_TEST_DB_URL=postgresql+psycopg2://user@localhost:5432/meter_test METER_DB_NULL_POOL=true python -m pytest -q
 python scripts/evaluate.py --yes --limit 10       # real API on 10 hand-checked trial photos (~$0.23)
 python scripts/evaluate.py --yes                  # all 100 (~$2.30); results go to data/evaluation.jsonl

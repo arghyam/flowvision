@@ -20,7 +20,7 @@ from service.vision import ModelError, ReaderSettings
 from service.vision.images import ImageError, fetch_image_url
 from service.vision.openai_client import OpenAIVisionClient
 
-BASE = "/meter-reader/v1"
+BASE = "/flowvision/v1/elm"
 
 
 def b64(data):

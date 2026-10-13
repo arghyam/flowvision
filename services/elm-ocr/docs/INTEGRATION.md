@@ -2,7 +2,7 @@
 
 This service reads the cumulative energy reading (kWh or kVAh) from a photo of an electricity meter. The central system sends one request per photo and gets the reading back in the response, usually within 20–30 seconds.
 
-Base URL: `https://<meter-reader-host>/meter-reader/v1`. The service's operators give you the host and an API key.
+Base URL: `https://<flowvision-host>/flowvision/v1/elm`. The service's operators give you the host and an API key. The same API is also served, unchanged, under the earlier base path `/meter-reader/v1`, for clients that already use it; new integrations use `/flowvision/v1/elm`.
 
 ## Contents
 
@@ -25,7 +25,7 @@ During a key rotation the service accepts both the old and the new key, so you c
 
 ## 2. Read a meter photo
 
-`POST /meter-reader/v1/extract-reading` with a JSON body:
+`POST /flowvision/v1/elm/extract-reading` with a JSON body:
 
 ```json
 {
@@ -112,7 +112,7 @@ Other fields:
   - If that id is still being processed, the response is HTTP 409 `ERROR_12` with `retryable: true`. Wait for the `Retry-After` header, then send it again.
   - If that id failed earlier (an error response), sending it again for the same consumer processes it again (with a corrected photo too).
 - The same id with a **different** consumer or photo is refused (HTTP 409, `ERROR_15`, not retryable): an id identifies one photo of one consumer. Send each new photo with a new id. Only after a failed attempt may the same id be resent with a corrected photo, and only for the same consumer (or with a `consumerId` when the failed attempt had none).
-- What counts as the same photo for a retried id: a link that was signed or issued again counts as the same link, and `a b.jpg` equals `a%20b.jpg`. Only these query parameters are ignored, because they change when a link is signed or issued again: any `X-Amz-*` or `X-Goog-*` parameter, and `Signature`, `Expires`, `Key-Pair-Id`, `Policy`, `sig`, `se`, `st`, `sp`, `sv`, `sr`, `spr`, `ss`, `srt`, `skoid`, `sktid`, `skt`, `ske`, `sks`, `skv`, `GoogleAccessId`, `token`, `access_token`, `auth_token`, `id_token`, `jwt`, `hmac`, `expiry`, `exp` and `nonce` (in any letter case). Every other parameter, such as `photoId`, `key` or `code`, tells photos apart. The same photo sent first as `imageURL` and then as `imageBase64` or an upload (`POST /meter-reader/v1/extract-reading/upload`, a multipart form with the photo in `image`) under the same id is also a retry. The other way round (base64 first, then a link) is refused with `ERROR_15`, so resend an id in the form you first used.
+- What counts as the same photo for a retried id: a link that was signed or issued again counts as the same link, and `a b.jpg` equals `a%20b.jpg`. Only these query parameters are ignored, because they change when a link is signed or issued again: any `X-Amz-*` or `X-Goog-*` parameter, and `Signature`, `Expires`, `Key-Pair-Id`, `Policy`, `sig`, `se`, `st`, `sp`, `sv`, `sr`, `spr`, `ss`, `srt`, `skoid`, `sktid`, `skt`, `ske`, `sks`, `skv`, `GoogleAccessId`, `token`, `access_token`, `auth_token`, `id_token`, `jwt`, `hmac`, `expiry`, `exp` and `nonce` (in any letter case). Every other parameter, such as `photoId`, `key` or `code`, tells photos apart. The same photo sent first as `imageURL` and then as `imageBase64` or an upload (`POST /flowvision/v1/elm/extract-reading/upload`, a multipart form with the photo in `image`) under the same id is also a retry. The other way round (base64 first, then a link) is refused with `ERROR_15`, so resend an id in the form you first used.
 - The **same photo** (identical file) of the same consumer, sent again with a new id within 7 days of its original reading, gets that result back without a second reading (response header `Duplicate-Of: <earlier id>`, `costEstimateUsd` 0). A new photo of the same meter is always read. Also:
   - while that photo is still being read under another id, the new request gets HTTP 409 `ERROR_12` (retryable; the message names the other id). Retry with the same id after it finishes and you get the earlier result without a second reading, so a double submit is paid once;
   - if the consumer's meter settings ([section 7](#7-meter-settings-per-consumer-optional)) really changed after that reading, the photo is read again (a `PUT` with the same settings changes nothing);
@@ -141,7 +141,7 @@ The HTTP status equals `statusCode`. (The operators can switch the service to Fl
 | `ERROR_003` | 413 | no | The uploaded or base64 image is over 20 MB, or the request body is over 30 MB. A body of up to 60 MB is read and discarded first, so you get this error, not a dropped connection. Such a request is not stored, and the response carries a new id, not yours. |
 | `ERROR_05` | 400 / 502 | 502: yes | The image URL could not be downloaded. 400 means your endpoint refused it (e.g. `HTTP 404`), the image there is over 20 MB, the host or address is not allowed, or the link contains a user name or password. 502 means your endpoint was down or too slow. |
 | `ERROR_07` | 400 | no | `PUT /meters`: unknown `meterTypeId`. |
-| `ERROR_15` | 409 | no | This `id` was already used for a different consumer or photo (after a failed attempt, another consumer). Right after a service upgrade, a retry of an id answered before it can also get this when its `imageURL` carried a token parameter (`token`, `access_token`, ...). Nothing is charged, and the stored result can be read with `GET /meter-reader/v1/readings/{id}`. |
+| `ERROR_15` | 409 | no | This `id` was already used for a different consumer or photo (after a failed attempt, another consumer). Right after a service upgrade, a retry of an id answered before it can also get this when its `imageURL` carried a token parameter (`token`, `access_token`, ...). Nothing is charged, and the stored result can be read with `GET /flowvision/v1/elm/readings/{id}`. |
 | `ERROR_09` | 401 | no | Missing or wrong `X-API-Key`. |
 | `ERROR_08` | 404 | no | Not found: no such reading (`/readings`, `/feedback`), no stored settings for this consumer (`GET /meters/{consumerId}`), or an unknown path. |
 | `ERROR_12` | 409 | yes | A request with this `id` is still being processed, or the same photo of this consumer is being read under another id. |
@@ -153,7 +153,7 @@ The HTTP status equals `statusCode`. (The operators can switch the service to Fl
 
 ## 6. Feedback: confirm or correct a reading
 
-`POST /meter-reader/v1/feedback`:
+`POST /flowvision/v1/elm/feedback`:
 
 ```json
 {"correlationId": "5f0c2a8e-1b7d-4c1e-9d3a-2f7e0b6a9c41", "data": {"accurate": false, "actual": "0019721.7"}}
@@ -169,14 +169,14 @@ Feedback matters: every later photo of that consumer is checked against the late
 
 ## 7. Meter settings per consumer (optional)
 
-`PUT /meter-reader/v1/meters/{consumerId}`:
+`PUT /flowvision/v1/elm/meters/{consumerId}`:
 
 ```json
 {"meterTypeId": "hpl_ppsm01", "billingUnit": "kWh"}
 ```
 
 A `PUT` replaces all four settings: a field you leave out is cleared. All four are optional:
-- `meterTypeId` is one of `GET /meter-reader/v1/meter-types`.
+- `meterTypeId` is one of `GET /flowvision/v1/elm/meter-types`.
 - `decimals` is the number of digits after the decimal point (a whole number, 0–3; not `true`/`false`).
 - `digits` is the total number of digits on the display, including leading zeros (1–12).
 - `billingUnit` is `kWh` or `kVAh`.
@@ -185,8 +185,8 @@ Setting these makes readings of that meter more reliable. `GET` on the same path
 
 ## 8. Looking up a stored reading or photo
 
-- `GET /meter-reader/v1/readings/{id or correlationId}` returns the stored record in `result` (the usual envelope): the reading, status, your details, and the request and response.
-- `GET /meter-reader/v1/readings/{id or correlationId}/image` returns the photo.
+- `GET /flowvision/v1/elm/readings/{id or correlationId}` returns the stored record in `result` (the usual envelope): the reading, status, your details, and the request and response.
+- `GET /flowvision/v1/elm/readings/{id or correlationId}/image` returns the photo.
 
 ## 9. Health endpoints
 

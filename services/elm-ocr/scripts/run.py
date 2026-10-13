@@ -83,7 +83,7 @@ def main():
     ap.add_argument("photo", help="a photo file, or an http(s) URL the service should download the photo from")
     ap.add_argument("--via-url", action="store_true", help="serve the photo file on a local URL and send the URL")
     ap.add_argument("--server", default=os.getenv("METER_SERVER", "http://localhost:8000"))
-    ap.add_argument("--base-path", default="/meter-reader/v1")
+    ap.add_argument("--base-path", default="/flowvision/v1/elm")
     ap.add_argument("--api-key", default=os.getenv("METER_SERVICE_API_KEY"), help="if the service requires X-API-Key")
     ap.add_argument("--consumer", help="consumerId")
     ap.add_argument("--captured-at", help="when the photo was taken, ISO 8601, e.g. 2026-09-30T10:15:00+05:30")

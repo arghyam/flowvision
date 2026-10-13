@@ -11,7 +11,7 @@ from app_factory import create_app
 from conftest import answer
 from service.vision.images import ImageError, fetch_image_url
 
-BASE = "/meter-reader/v1"
+BASE = "/flowvision/v1/elm"
 
 
 @pytest.fixture

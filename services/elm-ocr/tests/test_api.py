@@ -9,7 +9,7 @@ from app_factory import create_app
 from conf.config import load_settings
 from conftest import answer
 
-BASE = "/meter-reader/v1"
+BASE = "/flowvision/v1/elm"
 
 
 @pytest.fixture
@@ -165,6 +165,22 @@ def test_api_key(make_client, jpeg_bytes):
     ok = c.post(f"{BASE}/extract-reading", json=payload, headers={"X-API-Key": "s3cret"}).json()
     assert ok["result"]["status"] == "SUCCESS"
     assert c.get("/").status_code == 200
+
+
+def test_legacy_base_path_serves_the_same_api(make_client, jpeg_bytes):
+    """Existing clients keep /meter-reader/v1: the same routes, key check and records as /flowvision/v1/elm."""
+    legacy_base = "/meter-reader/v1"
+    c = make_client(answer("00197127"), api_key="s3cret")
+    key = {"X-API-Key": "s3cret"}
+    payload = {"id": "legacy-1", "imageBase64": b64(jpeg_bytes)}
+    assert c.post(f"{legacy_base}/extract-reading", json=payload).status_code == 401
+    legacy = c.post(f"{legacy_base}/extract-reading", json=payload, headers=key)
+    assert legacy.status_code == 200 and legacy.json()["result"]["status"] == "SUCCESS"
+    # one store behind both paths: the same id sent to the new path replays the stored result
+    replay = c.post(f"{BASE}/extract-reading", json=payload, headers=key)
+    assert replay.headers.get("Idempotent-Replay") == "true" and replay.json()["result"] == legacy.json()["result"]
+    assert c.get(f"{legacy_base}/readings/legacy-1", headers=key).json()["result"]["request_id"] == "legacy-1"
+    assert c.get(f"{legacy_base}/meter-types", headers=key).status_code == 200
 
 
 def test_load_settings(config, monkeypatch):
