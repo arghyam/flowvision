@@ -1,0 +1,51 @@
+# systemd unit for running the service directly on an EC2 instance (the other option is the Docker image).
+# Install (see docs/DEPLOY_AWS.md, option B): create a dedicated user without sudo, check the paths below, put the
+# settings in /etc/meter-reader.env (chmod 600, owned by root; see .env.example), then:
+#   sudo cp meter_reader.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now meter_reader
+# Code updates: sudo systemctl reload meter_reader (workers are replaced gracefully; no request is refused).
+# Settings changes (/etc/meter-reader.env): sudo systemctl restart meter_reader.
+# Logs: journalctl -u meter_reader (JSON lines in production).
+[Unit]
+Description=Electricity meter reader API (GPT-6 Sol)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=meterreader
+Group=meterreader
+WorkingDirectory=/opt/meter-reader/meter_reader_service
+Environment=PYTHONPATH=/opt/meter-reader/meter_reader_service/src
+Environment=PYTHONUNBUFFERED=1
+# glibc keeps far less memory per worker after a burst of photos with few malloc arenas
+Environment=MALLOC_ARENA_MAX=2
+EnvironmentFile=/etc/meter-reader.env
+# gunicorn.conf.py sets the workers, timeouts and keep-alive for use behind an Application Load Balancer.
+ExecStart=/opt/meter-reader/venv/bin/gunicorn -c gunicorn.conf.py routes:app
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=5
+# In-flight readings get their full deadline (100 s) to finish on stop or restart.
+TimeoutStopSec=130
+KillMode=mixed
+LimitNOFILE=65536
+
+# Sandboxing: the service only writes its data/ and logs/ folders (photos and the SQLite file, if used locally).
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/meter-reader/meter_reader_service/data /opt/meter-reader/meter_reader_service/logs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

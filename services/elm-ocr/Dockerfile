@@ -1,39 +1,70 @@
+# Same layout as FlowVision's image (venv builder stage, PYTHONPATH=/app/src, non-root user, gunicorn + uvicorn
+# workers), without the OpenCV/PyTorch dependencies: the reading is done by the OpenAI API.
+#
+#   docker build -t meter-reader .                  # the service (the last stage, `runtime`, is the default target)
+#   docker build --target test -t meter-reader-test . && docker run --rm meter-reader-test   # runs the tests
+# Configuration comes from environment variables (see .env.example and docs/DEPLOY_AWS.md).
+
+ARG PYTHON_IMAGE=python:3.13-slim-bookworm
+
 # =========================
 # Builder Stage
 # =========================
-FROM python:3.12-slim AS builder
+FROM ${PYTHON_IMAGE} AS builder
 
-ENV VIRTUAL_ENV=/opt/venv
-RUN python -m venv $VIRTUAL_ENV
+ENV VIRTUAL_ENV=/opt/venv \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Install from the hashed lock (regenerate it from pyproject.toml; see README)
-COPY requirements.lock /tmp/requirements.lock
-RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.lock
+RUN python -m venv $VIRTUAL_ENV
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
 # =========================
-# Final Runtime Stage
+# Base: the runtime environment shared by the test and runtime stages
 # =========================
-FROM python:3.12-slim
-
-ENV PATH="/opt/venv/bin:$PATH" \
-    PYTHONPATH=/app/src \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+FROM ${PYTHON_IMAGE} AS base
 
 COPY --from=builder /opt/venv /opt/venv
+# MALLOC_ARENA_MAX=2: with many threads, glibc otherwise keeps hundreds of MB per worker after a burst of photos
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH=/app/src \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    METER_LOG_TO_FILES=false \
+    MALLOC_ARENA_MAX=2
 
-# Code stays root-owned and read-only for the app user: the service writes nothing
-# to disk and logs to stdout. WORKDIR comes before USER on purpose; the legacy
-# builder creates it as root either way.
+RUN useradd --create-home --uid 10001 flowuser
+
 WORKDIR /app
-COPY src ./src
+COPY --chown=flowuser:flowuser src ./src
+COPY --chown=flowuser:flowuser gunicorn.conf.py ./
+RUN mkdir -p /app/data /app/logs && chown -R flowuser:flowuser /app/data /app/logs
 
-# Numeric UID so Kubernetes can enforce runAsNonRoot
-RUN useradd --system --uid 10001 --user-group --no-create-home elmuser
-USER 10001:10001
+# =========================
+# Test Stage (not deployed): docker build --target test
+# =========================
+FROM base AS test
+COPY requirements-dev.txt requirements.txt ./
+RUN pip install --no-cache-dir -r requirements-dev.txt
+COPY --chown=flowuser:flowuser tests ./tests
+COPY --chown=flowuser:flowuser scripts ./scripts
+USER flowuser
+CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
 
+# =========================
+# Runtime Stage (the default target)
+# =========================
+FROM base AS runtime
+USER flowuser
 EXPOSE 8000
 
-# One process per container; scale with replicas, not workers
-CMD ["uvicorn", "elm_ocr.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Liveness only: /health answers even when every read slot is busy. /ready also checks the database.
+# (ECS ignores this; declare the same check in the task definition, see docs/DEPLOY_AWS.md.)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)" || exit 1
+
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "routes:app"]

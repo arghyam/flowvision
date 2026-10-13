@@ -1,0 +1,115 @@
+# Service settings. Secrets and per-deployment values are environment variables (see .env.example); the variable
+# that overrides each setting is named next to it.
+
+log_level: "info"                       # METER_LOG_LEVEL
+# Largest accepted image, in bytes (20 MB).
+file_size_limit: 20971520
+
+app_server:
+  port: 8000
+  app: "routes:app"
+
+basepath: "/meter-reader/v1"
+
+# Logs go to stdout (one line per record; METER_LOG_FORMAT=json|text) and, unless METER_LOG_TO_FILES=false, to these
+# daily-rotated files (relative paths are under meter_reader_service/), kept METER_LOG_RETENTION_DAYS days (30).
+logs:
+  api_logger:
+    path: "logs/api_logs"
+    name: "MeterReader"
+  feedback_request_logger:
+    path: "logs/feedback_request_logs"
+    name: "MeterReaderFeedback"
+  extraction_request_logger:
+    path: "logs/extraction_request_logs"
+    name: "MeterReaderExtraction"
+
+# SQLAlchemy URL. SQLite works out of the box (relative paths are under meter_reader_service/); production uses
+# PostgreSQL, e.g. postgresql+psycopg2://user:pass@host:5432/meter_reader?sslmode=require
+# Override: METER_DB_URL (keeps the password out of this file). Pool: METER_DB_POOL_SIZE, METER_DB_MAX_OVERFLOW.
+database:
+  url: "sqlite:///data/meter_reader.db"
+
+# Every photo is saved, unchanged, as <images_dir>/<YYYY-MM-DD>/<request id>.<jpg|png|webp>, and its name is stored
+# with the reading (GET /readings/{id}/image returns it). The name holds no consumer details. images_dir is a folder
+# (relative paths are under meter_reader_service/) or s3://bucket/prefix. Override: METER_IMAGE_DIR ("none" = don't).
+storage:
+  images_dir: "data/images"
+
+# The vision model. Tested: gpt-6-sol with high reasoning effort and high image detail.
+# The API key is read only from the OPENAI_API_KEY env var.
+# Overrides: METER_MODEL, METER_REASONING_EFFORT, METER_IMAGE_DETAIL, METER_REQUEST_TIMEOUT, METER_OPENAI_ATTEMPTS,
+# OPENAI_BASE_URL.
+openai:
+  model: "gpt-6-sol"
+  reasoning_effort: "high"
+  image_detail: "high"
+  base_url: "https://api.openai.com/v1"
+  timeout_seconds: 90          # longest wait for one answer (also capped by the request deadline)
+  max_attempts: 2              # 1 retry, only for errors OpenAI did not bill (429 rate limit, 5xx, connection refused)
+
+# Checks. Overrides: METER_READS, METER_MIN_CONFIDENCE, METER_CLEAR_READ_CONFIDENCE, METER_MAX_DAILY_INCREASE,
+# METER_TYPES_FILE.
+reader:
+  # Model calls per photo. 2 = read twice and accept only if both reads agree (doubles the cost).
+  reads: 1
+  # A read below this confidence is returned as UNCLEAR (retake).
+  min_confidence: 0.90
+  # A clear read (every digit legible, unit and decimal point seen) at or above this confidence is accepted even when
+  # the meter type is unknown and there is no previous reading. Below it, such a reading goes to review (NO_CROSS_CHECK).
+  clear_read_confidence: 0.95
+  # Largest plausible increase per day since the previous accepted reading (kWh or kVAh).
+  max_daily_increase: 300
+  # Photos are shrunk so the longer side is at most this many pixels.
+  max_image_side: 2048
+  # Larger PNG/WebP images are refused before decoding (a small file can decode to gigabytes of memory: 16 MP is about
+  # 64 MB decoded). JPEGs are decoded at reduced size, so phone photos up to 250 megapixels are fine.
+  max_image_pixels: 16000000
+  max_jpeg_pixels: 250000000
+  # Optional JSON file with extra meter models (see service/vision/meter_types.py).
+  meter_types_file: null
+
+# Limits that protect the OpenAI bill and the service.
+limits:
+  request_deadline_seconds: 100   # one reading, download to answer; set the load balancer idle timeout above it (120)
+  max_concurrent_reads: 8         # per worker process; more wait busy_wait_seconds, then get 503 (retry later). Sized
+                                  # for a 4 GB task with 2 workers (DEPLOY_AWS.md); raise it only with more memory
+  busy_wait_seconds: 30           # a short burst queues; only a sustained overload gets 503
+  daily_budget_usd: 25            # USD: model calls stop for the rest of the day (India time) once the day's spend
+                                  # reaches this; about 1,080 photos at ~$0.023 each. METER_DAILY_BUDGET_USD overrides
+                                  # it ("none" = no cap, on purpose; production refuses to start without a choice)
+  duplicate_photo_hours: 168      # the same photo (same bytes) of the same consumer again within this: the earlier
+                                  # result is returned, with no model call; 0 = off
+  reserve_per_call_usd: 0.05      # reserved against the daily budget before each model call, replaced by the real
+                                  # cost after it (no call cost more than $0.043 in 384 real calls)
+  max_body_bytes: 31457280        # 30 MB: a 20 MB photo as base64 in JSON
+  max_inflight_body_bytes: 157286400   # 150 MB of photo bodies held at once per worker (by Content-Length); one more
+                                  # gets 503 "busy, retry" before it is read. Phone photos (~5 MB as base64) never reach
+                                  # it; it stops a burst of 10-20 MB photos from running a worker out of memory
+
+# The API. Overrides: METER_DOCS_ENABLED, METER_ERRORS_AS_HTTP_200, METER_NAIVE_TIME_OFFSET.
+api:
+  docs_enabled: null              # /docs and /openapi.json; null = on in development, off when METER_ENV=production
+  errors_as_http_200: false       # true = FlowVision style: error envelopes with HTTP 200
+  naive_time_offset: "+05:30"     # time zone of times sent without one (capturedAt "2026-09-30T10:00:00" = IST)
+
+# imageURL downloads: the service fetches the photo from the calling system's image endpoint.
+# allowed_hosts = [] allows any public host (production requires METER_IMAGE_URL_ALLOWED_HOSTS: the host list, or "*").
+# allow_private: allow hosts on private addresses (the central system in the same VPC); cloud metadata and other
+# link-local addresses are always refused. headers are sent only to allowed_hosts, for image endpoints that need
+# credentials, and dropped if a redirect changes the scheme, host or port. Put secrets in the env var, not here.
+# Overrides: METER_IMAGE_URL_ALLOWED_HOSTS (comma-separated), METER_ALLOW_PRIVATE_IMAGE_URLS (true/false),
+# METER_IMAGE_URL_HEADERS (JSON, e.g. {"Authorization": "Bearer abc"}).
+image_download:
+  allowed_hosts: []
+  allow_private: false
+  timeout_seconds: 30
+  headers: {}
+
+# Client authentication: METER_SERVICE_API_KEY (comma-separated to accept several while rotating). Every endpoint
+# except /, /health and /ready then requires the header X-API-Key. Unset = no authentication (refused in production).
+
+# USD per 1M tokens, used for the cost estimate in each response and for the daily budget (GPT-6 Sol list price, Sep 2026).
+pricing:
+  input_per_million: 2.0
+  output_per_million: 10.0
