@@ -1,0 +1,43 @@
+# A production-like stack on one machine: the service (production mode) and PostgreSQL. For a laptop or a single
+# EC2 instance; on AWS proper, use RDS and S3 instead (docs/DEPLOY_AWS.md): set METER_DB_URL and METER_IMAGE_DIR in
+# .env and they replace the local defaults below.
+#   cp .env.example .env    # set OPENAI_API_KEY, METER_SERVICE_API_KEY, POSTGRES_PASSWORD, METER_IMAGE_URL_ALLOWED_HOSTS
+#   docker compose up --build -d
+#   curl localhost:8000/ready
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: meter_reader
+      POSTGRES_USER: meter_reader
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meter_reader -d meter_reader"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  meter-reader:
+    build: .
+    restart: unless-stopped
+    stop_grace_period: 130s          # in-flight readings (up to 100 s) finish before the container stops
+    env_file: .env
+    environment:
+      METER_ENV: production
+      METER_DB_URL: ${METER_DB_URL:-postgresql+psycopg2://meter_reader:${POSTGRES_PASSWORD}@db:5432/meter_reader}
+      METER_IMAGE_DIR: ${METER_IMAGE_DIR:-/app/data/images}
+      METER_IMAGE_URL_ALLOWED_HOSTS: ${METER_IMAGE_URL_ALLOWED_HOSTS:?set METER_IMAGE_URL_ALLOWED_HOSTS in .env}
+    ports:
+      - "127.0.0.1:8000:8000"        # this machine only; put a load balancer or reverse proxy (HTTPS) in front
+    volumes:
+      - photos:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  photos:

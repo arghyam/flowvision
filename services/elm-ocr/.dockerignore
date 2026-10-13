@@ -1,6 +1,15 @@
-# Allowlist: send only what the image needs to the build context
-*
-!requirements.lock
-!src/
-**/__pycache__
-**/*.pyc
+.env
+.env.*
+.git
+data/
+logs/
+docs/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+Dockerfile
+docker-compose.yml
+.dockerignore
+*.md
