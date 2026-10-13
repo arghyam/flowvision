@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+    paths:
+      - services/elm-ocr/**
+      - .github/workflows/image-build-elm-ocr.yaml
+  pull_request:
+    paths:
+      - services/elm-ocr/**
+      - .github/workflows/image-build-elm-ocr.yaml
   workflow_dispatch:
   workflow_call:
     secrets:
@@ -18,8 +25,52 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    name: Test ELM OCR
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/elm-ocr
+    # Production runs on PostgreSQL; some tests (advisory locks, concurrent claims) run only there.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: meter_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d meter_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      METER_TEST_DB_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/meter_test
+      METER_DB_NULL_POOL: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --require-hashes -r requirements.lock
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest -q -p no:cacheprovider
+
   build-and-push:
     name: Build and push ELM OCR image
+    needs: test
+    # Pull requests only run the tests: no image is pushed (and fork PRs get no AWS secrets).
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     steps:

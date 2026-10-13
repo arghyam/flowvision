@@ -189,8 +189,9 @@ python scripts/evaluate.py --yes                  # all 100 (~$2.30); results go
 python scripts/replay.py data/evaluation.jsonl    # re-score saved answers under the current rules (free)
 ```
 
-GitHub Actions (`.github/workflows/image-build-elm-ocr.yaml`) builds this folder's Docker image and pushes it to ECR
-as `meter-reader` on every push to `main`. It does not run the tests; run them locally, or in the image with
+GitHub Actions (`.github/workflows/image-build-elm-ocr.yaml`) runs the tests (on PostgreSQL) for every pull request
+and push to `main` that changes this folder. On `main`, once they pass, it builds this folder's Docker image and pushes
+it to ECR as `meter-reader`. To run the tests in the image locally:
 `docker build --target test -t meter-reader-test . && docker run --rm meter-reader-test`.
 
 `evaluate.py` saves the model's full answers and resumes where it stopped. Point `--review` and `--images` at a fresh, hand-checked set large enough to give about 60 ACCEPT readings with zero errors (several hundred photos at the current accept rate) to confirm the 95% target before going live.
