@@ -68,14 +68,32 @@ def test_unknown_meter_without_point_needs_review():
 
 
 def test_photo_problems_are_retakes():
-    assert check(answer(None, status="NO_DISPLAY", screen="not_visible")).reason == "NO_DISPLAY"
-    assert check(answer("23.4", status="NOT_CUMULATIVE_SCREEN", screen="max_demand")).reason == "WRONG_SCREEN"
-    assert check(answer("0019712.7", screen="max_demand")).reason == "WRONG_SCREEN"   # READ but wrong screen
-    assert check(answer("0019?12.7", status="UNREADABLE")).reason == "UNREADABLE"
-    assert check(answer("0019712.7", illegible={3})).reason == "DIGITS_UNCLEAR"
-    assert check(answer("0019712.7", count_certain=False)).reason == "DIGITS_UNCLEAR"
-    o = check(answer("0019712.7", conf=0.8))
-    assert o.reason == "LOW_CONFIDENCE" and o.outcome == RETAKE
+    for a, reason in ((answer(None, status="NO_DISPLAY", screen="not_visible"), "NO_DISPLAY"),
+                      (answer("23.4", status="NOT_CUMULATIVE_SCREEN", screen="max_demand"), "WRONG_SCREEN"),
+                      (answer("0019712.7", screen="max_demand"), "WRONG_SCREEN")):     # READ but wrong screen
+        o = check(a)
+        assert o.reason == reason and o.outcome == RETAKE, reason
+
+
+def test_hard_to_read_photos_go_to_review():
+    # glare, blur or an unclear digit: a person checks the model's reading against the photo instead of a retake
+    for a, reason in ((answer("0019?12.7", status="UNREADABLE"), "UNREADABLE"),
+                      (answer("0019712.7", illegible={3}), "DIGITS_UNCLEAR"),
+                      (answer("0019712.7", count_certain=False), "DIGITS_UNCLEAR"),
+                      (answer("0019712.7", conf=0.8), "LOW_CONFIDENCE")):
+        o = check(a)
+        assert o.reason == reason and o.outcome == NEEDS_REVIEW, reason
+
+
+def test_unreadable_screen_of_another_unit_is_still_a_retake():
+    # the unit shows it is not the energy total (max demand, voltage, reactive energy): no use reviewing the number
+    for unit in ("kW", "kVA", "V", "kVArh", "Hz", "A", "INR"):
+        o = check(answer("0019?12.7", status="UNREADABLE", unit=unit))
+        assert o.reason == "WRONG_SCREEN" and o.outcome == RETAKE, unit
+    # no unit, or one that names no other quantity: a glare photo still goes to review
+    for unit in ("kWh", "kVAh", None, "CUM", "?"):
+        o = check(answer("0019?12.7", status="UNREADABLE", unit=unit))
+        assert o.reason == "UNREADABLE" and o.outcome == NEEDS_REVIEW, unit
 
 
 def test_inconsistent_answer_needs_review():
@@ -171,9 +189,12 @@ def test_decide_requires_reads_to_agree():
     assert d.status == NEEDS_REVIEW and d.reasons == ["READS_DISAGREE"]
 
 
-def test_decide_one_unclear_read_means_retake():
+def test_decide_one_unclear_read_means_review():
     unclear = check(answer("0019712.7", illegible={2}))
-    assert decide([ok("0019712.7"), unclear]).status == RETAKE
+    d = decide([ok("0019712.7"), unclear])
+    assert d.status == NEEDS_REVIEW and d.reasons == ["DIGITS_UNCLEAR"]
+    wrong_screen = check(answer("0019712.7", screen="max_demand"))
+    assert decide([ok("0019712.7"), wrong_screen]).status == RETAKE
 
 
 def test_decide_previous_reading_checks():

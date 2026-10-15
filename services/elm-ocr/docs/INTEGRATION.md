@@ -87,9 +87,9 @@ Two things to watch:
 | `status` | `action` | What it means | What to do |
 |---|---|---|---|
 | `SUCCESS` | `ACCEPT` | The reading passed every check. | Use `meterReading`. |
-| `UNCLEAR` | `RETAKE` | Photo problem: glare, an unclear digit, no unit visible, low confidence, or not the total screen (e.g. a tariff T1/T2 or bill screen). | Ask for a new photo and show `retakeHint` to the person taking it. `meterReading` holds the model's best reading, for information only; when the model saw no digits at all it holds a short sentence instead. |
+| `UNCLEAR` | `RETAKE` | Wrong photo: not the total screen (e.g. a tariff T1/T2 or bill screen), no unit visible, or the wrong unit. | Ask for a new photo and show `retakeHint` to the person taking it. `meterReading` holds the model's best reading, for information only; when the model saw no digits at all it holds a short sentence instead. |
 | `NOMETER` | `RETAKE` | No meter display is visible. | Ask for a new photo. `meterReading` holds a short explanation, not a number. |
-| `NEEDS_REVIEW` | `REVIEW` | The photo looked fine, but the reading failed a consistency check: wrong digit count, uncertain decimal point, lower than the previous reading, or an implausible jump. | A person checks `meterReading` against the photo, then confirms or corrects it through `/feedback`. |
+| `NEEDS_REVIEW` | `REVIEW` | The photo was hard to read (glare, an unclear or possibly missing digit, low confidence), or the reading failed a consistency check: wrong digit count, uncertain decimal point, lower than the previous reading, or an implausible jump. | A person checks `meterReading` against the photo, starting with the digits in `uncertainDigits` (if it is empty, check every digit), then confirms or corrects it through `/feedback`. A `?` in `meterReading` is a digit the model could not guess, and when the model could not read a single digit `meterReading` holds a short sentence: in both cases send the correct reading as `actual`. |
 
 **Bill only on `ACCEPT`,** or on a reading a person has confirmed. The reading is returned for every photo with a display so that people can see it, but only `ACCEPT` has passed every check.
 
@@ -99,8 +99,8 @@ Other fields:
 - `uncertainDigits` lists the 1-based positions of the digits the model was unsure of, counting leading zeros but not the decimal point. For example, `[6]` means "check the 6th digit".
 - `decimalSource` says where the decimal point comes from: `consumer` or `registry` (the meter type), `visible_point`, `previous_reading`, or `model_guess`.
 - `reasons` is a list of `{code, message}` explaining a non-ACCEPT result.
-  - Photo problems (RETAKE): `NO_DISPLAY`, `WRONG_SCREEN`, `UNREADABLE`, `DIGITS_UNCLEAR`, `LOW_CONFIDENCE`, `UNIT_NOT_VISIBLE`, `UNIT_MISMATCH`.
-  - Review needed: `DIGIT_COUNT_MISMATCH`, `DECIMAL_UNCERTAIN`, `NO_CROSS_CHECK`, `BELOW_PREVIOUS`, `JUMP_TOO_LARGE`, `HISTORY_UNAVAILABLE` (the previous readings could not be checked), `READS_DISAGREE`, `BAD_OUTPUT`, `CORRECTED_BEFORE` (a person already marked the reading of this same photo wrong or corrected it, so it is not read or accepted again; see [section 4](#4-timeouts-and-retries)).
+  - Photo problems (RETAKE): `NO_DISPLAY`, `WRONG_SCREEN`, `UNIT_NOT_VISIBLE`, `UNIT_MISMATCH`.
+  - Review needed: `UNREADABLE`, `DIGITS_UNCLEAR` (a digit unclear or possibly missing), `LOW_CONFIDENCE` (the photo was hard to read, e.g. glare), `DIGIT_COUNT_MISMATCH`, `DECIMAL_UNCERTAIN`, `NO_CROSS_CHECK`, `BELOW_PREVIOUS`, `JUMP_TOO_LARGE`, `HISTORY_UNAVAILABLE` (the previous readings could not be checked), `READS_DISAGREE`, `BAD_OUTPUT`, `CORRECTED_BEFORE` (a person already marked the reading of this same photo wrong or corrected it, so it is not read or accepted again; see [section 4](#4-timeouts-and-retries)).
 - Fields with no value (e.g. `retakeHint` on an ACCEPT) are left out of the response rather than sent as `null`. The one exception is `previousReading`, the previous reading the result was compared with: its `unit` or `capturedAt` can be `null`.
 - `correlationId` identifies this reading for `/feedback`.
 
@@ -160,8 +160,8 @@ The HTTP status equals `statusCode`. (The operators can switch the service to Fl
 ```
 
 Send `accurate`, `actual`, or both; at least one is required.
-- `accurate: true` means the returned reading is the correct cumulative reading. On an `ACCEPT` or `REVIEW` result, it becomes the consumer's trusted previous reading. `accurate: false` marks it wrong.
-- `actual` is the correct reading. Send it **as a string** so the leading zeros are kept: digits, with a decimal point if the meter shows one. It becomes the consumer's trusted previous reading. This does not apply to a `CORRECTED_BEFORE` result, which repeats an earlier photo; send the correction with the original reading's `correlationId` instead (the request named in `Duplicate-Of`, see [section 8](#8-looking-up-a-stored-reading-or-photo)). `accurate` may be left out when `actual` is sent. `accurate` may be left out when `actual` is sent.
+- `accurate: true` means the returned reading is the correct cumulative reading. On an `ACCEPT` or `REVIEW` result, it becomes the consumer's trusted previous reading, provided the reading is a full number: a reading with a `?`, or a sentence, cannot be confirmed, so send `actual` instead. `accurate: false` marks it wrong.
+- `actual` is the correct reading. Send it **as a string** so the leading zeros are kept: digits, with a decimal point if the meter shows one. It becomes the consumer's trusted previous reading. This does not apply to a `CORRECTED_BEFORE` result, which repeats an earlier photo; send the correction with the original reading's `correlationId` instead (the request named in `Duplicate-Of`, see [section 8](#8-looking-up-a-stored-reading-or-photo)). `accurate` may be left out when `actual` is sent.
 - A photo whose reading was marked wrong or corrected is not read again if it is sent again ([section 4](#4-timeouts-and-retries)).
 - An unknown `correlationId` returns 404 `ERROR_08`.
 
@@ -179,7 +179,7 @@ A `PUT` replaces all four settings: a field you leave out is cleared. All four a
 - `meterTypeId` is one of `GET /flowvision/v1/elm/meter-types`.
 - `decimals` is the number of digits after the decimal point (a whole number, 0–3; not `true`/`false`).
 - `digits` is the total number of digits on the display, including leading zeros (1–12).
-- `billingUnit` is `kWh` or `kVAh`.
+- `billingUnit` is `kWh` or `kVAh`. With it set, a clear reading of the other unit comes back `UNCLEAR` (`UNIT_MISMATCH`). A hard-to-read photo still goes to review whatever its unit, so the reviewer should check `unit` too.
 
 Setting these makes readings of that meter more reliable. `GET` on the same path returns the stored settings.
 

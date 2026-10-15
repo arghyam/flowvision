@@ -45,7 +45,7 @@ from validation.validators import ImageValidator
 
 # FlowVision keeps meterReading present on every result; when there is no reading it carries a short explanation.
 NO_METER_READING = "No meter display detected in the image"
-UNCLEAR_READING = "Image not clear enough for a reliable reading; please retake the photo"
+UNCLEAR_READING = "Not the cumulative energy reading; please retake the photo"
 REVIEW_READING = "Reading needs manual review"
 
 

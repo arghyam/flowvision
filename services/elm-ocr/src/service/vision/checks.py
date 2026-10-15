@@ -1,7 +1,8 @@
 """
 Safety checks. A reading is ACCEPTED only when every check passes; anything doubtful becomes RETAKE
-(the photo is the problem: ask for a new one) or NEEDS_REVIEW (the photo looks fine but the result
-failed a consistency check: a person should look).
+(the photo shows no display, the wrong screen or the wrong unit: ask for a new one) or NEEDS_REVIEW
+(the photo is hard to read, e.g. glare or an unclear digit, or the result failed a consistency check:
+a person checks the reading against the photo).
 """
 import re
 from dataclasses import dataclass, field
@@ -16,12 +17,11 @@ REASONS = {
                    "Take the photo straight at the meter's display, with the display switched on."),
     "WRONG_SCREEN": (RETAKE, "The display is showing another screen, not the cumulative energy reading.",
                      "Wait until the display shows the total kWh (or kVAh) reading, then take the photo."),
-    "UNREADABLE": (RETAKE, "The reading could not be read with certainty.",
-                   "Move closer so the display fills most of the photo, hold steady, and avoid glare or reflections."),
-    "DIGITS_UNCLEAR": (RETAKE, "One or more digits are unclear, or a digit may be missing.",
-                       "Move closer so the display fills most of the photo, hold steady, and avoid glare or reflections."),
-    "LOW_CONFIDENCE": (RETAKE, "The model was not confident enough in the reading.",
-                       "Take a sharper, closer photo of the display without glare."),
+    # Hard-to-read photos (glare, blur, an unclear digit) go to a person, who checks the model's reading against the
+    # photo and confirms or corrects it through /feedback, rather than back to the consumer for a new photo.
+    "UNREADABLE": (NEEDS_REVIEW, "The reading could not be read with certainty.", None),
+    "DIGITS_UNCLEAR": (NEEDS_REVIEW, "One or more digits are unclear, or a digit may be missing.", None),
+    "LOW_CONFIDENCE": (NEEDS_REVIEW, "The model was not confident enough in the reading.", None),
     "UNIT_MISMATCH": (RETAKE, "The display shows a different unit from the one billed for this meter.",
                       "Wait until the display shows the billed unit (kWh or kVAh), then take the photo."),
     "UNIT_NOT_VISIBLE": (RETAKE, "No kWh or kVAh label was seen, so it is not certain which energy total is shown "
@@ -125,6 +125,9 @@ def evaluate_read(answer, rule, min_confidence):
         return _fail("WRONG_SCREEN", unit=unit, notes=[f"LCD label {label!r} marks a tariff, bill-history, "
                                                        "demand or balance screen, not the total"])
     if status != "READ":
+        if unit is not None and (unit == "kVArh" or NOT_ENERGY_UNIT.match(unit)):
+            # an unreadable kW / V / kVArh... screen is still the wrong screen: a retake, not a review
+            return _fail("WRONG_SCREEN", unit=unit, notes=[f"unit {unit} is not kWh or kVAh"])
         return _fail("UNREADABLE", unit=unit)
     if unit is not None and unit not in ENERGY_UNITS:     # kW / kVA (max demand), V, kVArh...: not the billed total
         return _fail("WRONG_SCREEN", unit=unit, notes=[f"unit {unit} is not kWh or kVAh"])

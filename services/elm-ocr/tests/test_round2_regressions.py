@@ -647,7 +647,7 @@ def test_a_real_reread_after_an_unclear_result_is_history(app_with, jpeg_bytes):
     c = app_with(answer("00197127", status="UNREADABLE", illegible={3}), answer("00197127"),
                  env={"METER_DUPLICATE_PHOTO_HOURS": "0"})
     assert post(c, id="UB-a", imageBase64=b64(jpeg_bytes), consumerId="UB",
-                capturedAt="2026-09-20T10:00:00+05:30").json()["result"]["status"] == "UNCLEAR"
+                capturedAt="2026-09-20T10:00:00+05:30").json()["result"]["status"] == "NEEDS_REVIEW"
     assert post(c, id="UB-b", imageBase64=b64(jpeg_bytes), consumerId="UB",
                 capturedAt="2026-09-21T10:00:00+05:30").json()["result"]["status"] == "SUCCESS"
     prev = c.app.state.service.metadata_store.last_trusted("UB", before=datetime(2026, 9, 30, tzinfo=timezone.utc))

@@ -90,9 +90,9 @@ class FeedbackResponseStatus(StrEnum):
 
 class Status(StrEnum):
     NOMETER = 'NOMETER'            # no meter display visible: ask for a new photo
-    UNCLEAR = 'UNCLEAR'            # photo problem (wrong screen, unclear digit, glare...): ask for a new photo
+    UNCLEAR = 'UNCLEAR'            # wrong photo (not the total screen, no unit or the wrong unit): ask for a new one
     SUCCESS = 'SUCCESS'            # reading passed every check
-    NEEDS_REVIEW = 'NEEDS_REVIEW'  # photo looked fine but the result failed a consistency check: a person should look
+    NEEDS_REVIEW = 'NEEDS_REVIEW'  # hard to read (glare, unclear digit, low confidence) or failed a consistency check: a person checks it
 
 
 class BaseResponse(BaseModel):
@@ -168,14 +168,15 @@ class ReadSummary(BaseModel):
 
 class Action(StrEnum):
     ACCEPT = "ACCEPT"    # SUCCESS: the reading passed every check
-    RETAKE = "RETAKE"    # UNCLEAR / NOMETER: photo problem; a new photo would give a surer reading
-    REVIEW = "REVIEW"    # NEEDS_REVIEW: the reading failed a consistency check; worth a person's look
+    RETAKE = "RETAKE"    # UNCLEAR / NOMETER: no display, the wrong screen or the wrong unit; a new photo is needed
+    REVIEW = "REVIEW"    # NEEDS_REVIEW: hard to read or failed a consistency check; a person confirms or corrects it
 
 
 class ReadingExtractionResultData(BaseModel):
     meterReading: Optional[str] = Field(None, description="The reading as displayed, e.g. 0019712.7, whenever a display "
                                         "was seen ('?' = a digit the model could not guess); status and action say how "
-                                        "far to trust it. A short explanation when no display was seen (NOMETER)")
+                                        "far to trust it. A short explanation when no display was seen (NOMETER), or when the "
+                                        "model could not read a single digit")
     action: Optional[Action] = Field(None, description="ACCEPT, RETAKE or REVIEW")
     unit: Optional[str] = None
     meterBrand: Optional[str] = None
@@ -237,7 +238,8 @@ class MeterProfileRequest(BaseModel):
         None, ge=0, le=3, description="Digits after the decimal point; overrides the type")
     digits: Annotated[Optional[int], BeforeValidator(_whole_number)] = Field(
         None, ge=1, le=12, description="Total digits on the display, leading zeros included")
-    billingUnit: Optional[str] = Field(None, description="kWh or kVAh; readings in another unit are returned as UNCLEAR")
+    billingUnit: Optional[str] = Field(None, description="kWh or kVAh; a clear reading in another unit is returned as "
+                                                         "UNCLEAR (a hard-to-read one goes to review)")
 
 
 class MeterProfile(BaseModel):

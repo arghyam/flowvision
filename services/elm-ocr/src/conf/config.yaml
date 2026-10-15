@@ -58,7 +58,7 @@ openai:
 reader:
   # Model calls per photo. 2 = read twice and accept only if both reads agree (doubles the cost).
   reads: 1
-  # A read below this confidence is returned as UNCLEAR (retake).
+  # A read below this confidence goes to review (NEEDS_REVIEW, LOW_CONFIDENCE).
   min_confidence: 0.90
   # A clear read (every digit legible, unit and decimal point seen) at or above this confidence is accepted even when
   # the meter type is unknown and there is no previous reading. Below it, such a reading goes to review (NO_CROSS_CHECK).
