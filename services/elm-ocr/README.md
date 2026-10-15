@@ -12,7 +12,7 @@ Reads the cumulative energy reading (kWh or kVAh) from a photo of a digital elec
 | `SUCCESS` | `ACCEPT` | The reading passed every check. |
 | `UNCLEAR` | `RETAKE` | Wrong photo: not the cumulative screen (e.g. a tariff or bill screen), no unit visible, or the wrong unit. `retakeHint` says how to take a better photo. |
 | `NOMETER` | `RETAKE` | No meter display is visible; `meterReading` then holds a short explanation. |
-| `NEEDS_REVIEW` | `REVIEW` | The photo was hard to read (glare, an unclear or missing digit, low confidence), or the reading failed a consistency check (digit count, decimal point, previous reading). A person checks the reading against the photo; `uncertainDigits` says which digits to check. |
+| `NEEDS_REVIEW` | `REVIEW` | The photo was hard to read (glare, an unclear or missing digit, low confidence), or the reading failed a consistency check (digit count, decimal point, previous reading). A person checks the reading against the photo; `uncertainDigits` says which digits to check (empty: check them all). |
 
 The API under `/flowvision/v1/elm` (and, for existing clients, `/meter-reader/v1`) uses FlowVision's envelope (`id` / `ts` / `responseCode` / `statusCode` / `result` or `error`) for every response, errors included (except the saved photo itself; `/`, `/health` and `/ready` answer with plain JSON), along with FlowVision's statuses, feedback format, config, logging, error codes, validation and database components.
 
@@ -101,7 +101,7 @@ The base path is `/flowvision/v1/elm`, the per-meter prefix the shared FlowVisio
 |---|---|
 | `POST /extract-reading` | JSON: `imageURL` **or** `imageBase64`, plus optional `id`, `consumerId`, `capturedAt`, `previousReading {value, unit, capturedAt}`, `metadata`, and any other details. |
 | `POST /extract-reading/upload` | The same as multipart: an `image` file plus optional `id`, `consumerId`, `capturedAt`, `previousValue`, `previousUnit`, `previousCapturedAt`, `metadata` (JSON text). An invalid field is reported under its form field name. |
-| `POST /feedback` | `{"correlationId": "...", "data": {"accurate": false, "actual": "0019712.7"}}`; `accurate` may be left out when `actual` is sent. A corrected reading (`actual`), or a confirmed (`accurate: true`) SUCCESS or REVIEW reading, becomes the consumer's trusted previous reading. |
+| `POST /feedback` | `{"correlationId": "...", "data": {"accurate": false, "actual": "0019712.7"}}`; `accurate` may be left out when `actual` is sent. A corrected reading (`actual`), or a confirmed (`accurate: true`) SUCCESS or REVIEW reading, becomes the consumer's trusted previous reading. A REVIEW reading with a `?`, or with no number, needs an `actual`. |
 | `GET` / `PUT /meters/{consumerId}` | Per-consumer settings: `meterTypeId`, `decimals`, `digits`, `billingUnit` (kWh or kVAh). |
 | `GET /meter-types` | The known meter types. |
 | `GET /readings/{requestOrCorrelationId}` | The stored record, in `result`. |
@@ -126,20 +126,21 @@ Errors carry `errorCode`, `errorMsg` and `retryable`, with the HTTP status equal
    - Every digit must be legible, the digit count certain, and the digit list and the display text must agree.
    - The confidence must be at least 0.90.
    - The unit must be visible and be kWh or kVAh.
+   - Failing only the legibility or confidence checks sends the photo to review, with the model's reading. The wrong screen, or a missing or wrong unit on a clear read, means a retake.
 4. **Decimal point and digit count from the meter type** (`src/service/vision/meter_types.py`), never from the model's view of a tiny dot.
    - Each consumer setting wins.
    - A setting left empty comes from the consumer's meter type, else from the type identified by its printed **model code** (never the brand alone).
    - For an unknown meter, only a clearly visible point counts.
-5. **Unit check.** If the consumer's billing unit is set, a photo of the other unit is `UNCLEAR`.
+5. **Unit check.** If the consumer's billing unit is set, a clear reading of the other unit is `UNCLEAR`. A hard-to-read photo goes to review whatever its unit, so the reviewer checks `unit` too.
 6. **Previous-reading check.** A reading lower than the last trusted reading (the newest taken at or before this photo's capture time), or more than 300 per day above it, is flagged for review. A reused answer (one that shares an earlier request's `correlationId`) never counts as a previous reading; a real re-read of the same photo, e.g. after an earlier `UNCLEAR` result, does. Trusted readings are:
    - `SUCCESS` readings not marked wrong;
    - a corrected `actual`;
-   - `accurate: true` on a SUCCESS or REVIEW reading.
+   - `accurate: true` on a SUCCESS or REVIEW reading (a reading with a `?`, or no number at all, needs an `actual`).
 7. **Cross-check or clear read.** A dropped digit or shifted decimal point is caught by the meter type's digit count or by a previous reading. Without either, a **clear read** (every check passed, confidence ≥ 0.95, `METER_CLEAR_READ_CONFIDENCE`) is still accepted; anything less is flagged `NO_CROSS_CHECK`.
 
 **Evidence so far** (hand-reviewed photos):
 - On the 100 trial photos (`../trial/`), every ACCEPT was correct except one bill-history screen (labelled "1. bILL kW·h"), which the current prompt now declines as another screen (step 3). The returned reading was right on 36 of 51 readable photos, decimal point included. Most misses were glare photos, with the wrong digit flagged in `uncertainDigits`. The rules were tuned on these same photos.
-- On 268 fresh photos (2026-10-02, $6.17), 20 of 21 ACCEPT readings were right (95.2%). The miss, PB_harrion-tapprian, was a clear-photo misread: 0016183.1 for 0016189.1, at confidence 0.98. The returned reading was right on 87 of 146 readable photos, and 17 Assam tariff or bill screens that the hand review counted as readings were rightly declined. A replay of all saved answers under the current rules changed no decision.
+- On 268 fresh photos (2026-10-02, $6.17), 20 of 21 ACCEPT readings were right (95.2%). The miss, PB_harrion-tapprian, was a clear-photo misread: 0016183.1 for 0016189.1, at confidence 0.98. The returned reading was right on 87 of 146 readable photos, and 17 Assam tariff or bill screens that the hand review counted as readings were rightly declined. A replay of all saved answers under the rules of that date changed no decision. Since then, hard-to-read photos go to review instead of retake; that changes no ACCEPT.
 
 21 ACCEPT readings are too few to support the 95% target; about 60 with zero errors are needed.
 
@@ -182,7 +183,7 @@ All settings are in `src/conf/config.yaml` (or the file named by `CONFIG_PATH`),
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q                               # 223 tests, fake model, no cost (3 run only on PostgreSQL)
+python -m pytest -q                               # 228 tests, fake model, no cost (3 run only on PostgreSQL)
 METER_TEST_DB_URL=postgresql+psycopg2://user@localhost:5432/meter_test METER_DB_NULL_POOL=true python -m pytest -q
 python scripts/evaluate.py --yes --limit 10       # real API on 10 hand-checked trial photos (~$0.23)
 python scripts/evaluate.py --yes                  # all 100 (~$2.30); results go to data/evaluation.jsonl

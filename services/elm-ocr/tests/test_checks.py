@@ -87,10 +87,11 @@ def test_hard_to_read_photos_go_to_review():
 
 def test_unreadable_screen_of_another_unit_is_still_a_retake():
     # the unit shows it is not the energy total (max demand, voltage, reactive energy): no use reviewing the number
-    for unit in ("kW", "kVA", "V", "kVArh"):
+    for unit in ("kW", "kVA", "V", "kVArh", "Hz", "A", "INR"):
         o = check(answer("0019?12.7", status="UNREADABLE", unit=unit))
         assert o.reason == "WRONG_SCREEN" and o.outcome == RETAKE, unit
-    for unit in ("kWh", "kVAh", None):
+    # no unit, or one that names no other quantity: a glare photo still goes to review
+    for unit in ("kWh", "kVAh", None, "CUM", "?"):
         o = check(answer("0019?12.7", status="UNREADABLE", unit=unit))
         assert o.reason == "UNREADABLE" and o.outcome == NEEDS_REVIEW, unit
 

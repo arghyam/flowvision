@@ -9,7 +9,7 @@ class ReaderSettings:
     reasoning_effort: str | None = "high"      # None for models without reasoning
     image_detail: str = "high"
     reads: int = 1                              # with 2+, every read must agree exactly (costs more)
-    min_confidence: float = 0.90                # per-read confidence below this -> RETAKE
+    min_confidence: float = 0.90                # per-read confidence below this -> NEEDS_REVIEW
     clear_read_confidence: float = 0.95         # accept without a meter type or previous reading at/above this
     max_daily_increase: float = 300.0           # units/day above the previous reading -> NEEDS_REVIEW
     openai_base_url: str = "https://api.openai.com/v1"
