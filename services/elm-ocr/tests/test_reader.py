@@ -89,9 +89,22 @@ def test_first_reading_of_unknown_meter_is_held_then_cross_checked(make_reader, 
 
 
 def test_explicit_previous_and_retake_hint(make_reader, jpeg_bytes):
-    r = make_reader(answer("0019?12.7", status="UNREADABLE")).read(
-        jpeg_bytes, previous=previous_from("19000", "kWh", datetime(2026, 9, 1)))
-    assert r.status == RETAKE and r.retake_hint
+    prev = previous_from("19000", "kWh", datetime(2026, 9, 1))
+    r = make_reader(answer("0019712.7", unit=None)).read(jpeg_bytes, previous=prev)
+    assert r.status == RETAKE and r.reason_codes == ["UNIT_NOT_VISIBLE"] and r.retake_hint
+    assert r.previous["value"] == "19000"
+    # a hard-to-read photo goes to review: no retake hint; the model's reading and the previous reading are shown
+    u = make_reader(answer("0019?12.7", status="UNREADABLE", best_guess="0019712.7")).read(jpeg_bytes, previous=prev)
+    assert u.status == NEEDS_REVIEW and u.reason_codes == ["UNREADABLE"] and u.retake_hint is None
+    assert u.reading == "0019712.7" and u.uncertain_digits == [5] and u.previous["value"] == "19000"
+
+
+def test_a_confirmed_review_with_an_unguessed_digit_is_not_history(store):
+    # confirming a reading that still holds a "?" cannot make it a previous reading; a full reading can
+    stored(store, "C12", "00197?2.7", T0, cid="q12", status="NEEDS_REVIEW", accurate=True)
+    assert store.last_trusted("C12", before=T0 + timedelta(days=1)) is None
+    stored(store, "C13", "0019712.7", T0, cid="r13", status="NEEDS_REVIEW", accurate=True)
+    assert str(store.last_trusted("C13", before=T0 + timedelta(days=1)).value) == "19712.7"
 
 
 def test_every_result_with_a_display_carries_a_reading(make_reader, store, jpeg_bytes):

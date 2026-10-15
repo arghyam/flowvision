@@ -43,16 +43,31 @@ def test_status_mapping(make_client, jpeg_bytes, monkeypatch):
     r = nomatch.post(f"{BASE}/extract-reading", json={"imageBase64": b64(jpeg_bytes)}).json()["result"]
     assert r["status"] == "NOMETER" and r["data"]["action"] == "RETAKE" and r["data"]["retakeHint"]
     assert r["data"]["meterReading"] == "No meter display detected in the image"   # nothing to read
-    # unsure of one digit: still returns what the model read, flagged as a retake
+    # unsure of one digit: returns what the model read, sent to a person for review (no retake hint)
     unclear = make_client(answer("001?712.7", status="UNREADABLE", illegible={3}, best_guess="0019712.7"))
     r = unclear.post(f"{BASE}/extract-reading", json={"imageBase64": b64(jpeg_bytes)}).json()["result"]
-    assert r["status"] == "UNCLEAR" and r["data"]["action"] == "RETAKE"
+    assert r["status"] == "NEEDS_REVIEW" and r["data"]["action"] == "REVIEW" and "retakeHint" not in r["data"]
     assert r["data"]["meterReading"] == "0019712.7" and r["data"]["uncertainDigits"] == [4]   # the reading is always shown
     assert r["data"]["decimalSource"] == "registry"
     review = make_client(answer("008365.8"))          # HPL meter with a dropped digit
     r = review.post(f"{BASE}/extract-reading", json={"imageBase64": b64(jpeg_bytes)}).json()["result"]
     assert r["status"] == "NEEDS_REVIEW" and r["data"]["reasons"][0]["code"] == "DIGIT_COUNT_MISMATCH"
     assert r["data"]["meterReading"] == "008365.8" and r["data"]["action"] == "REVIEW"   # what the model read
+
+
+def test_hard_to_read_photo_is_reviewed_and_confirmed(make_client, jpeg_bytes):
+    # glare on one digit: the reading goes to a person, whose confirmation makes it the trusted previous reading
+    c = make_client(answer("0019712.7", illegible={4}))
+    r = c.post(f"{BASE}/extract-reading", json={"imageBase64": b64(jpeg_bytes), "consumerId": "G1",
+                                                "capturedAt": "2026-09-20T10:00:00+05:30"}).json()["result"]
+    assert r["status"] == "NEEDS_REVIEW" and r["data"]["action"] == "REVIEW" and "retakeHint" not in r["data"]
+    assert r["data"]["reasons"][0]["code"] == "DIGITS_UNCLEAR"
+    assert r["data"]["meterReading"] == "0019712.7" and r["data"]["uncertainDigits"] == [5]
+    store = c.app.state.service.metadata_store
+    assert store.last_trusted("G1", before=datetime(2026, 9, 30, tzinfo=timezone.utc)) is None   # not until confirmed
+    fb = c.post(f"{BASE}/feedback", json={"correlationId": r["correlationId"], "data": {"accurate": True}}).json()
+    assert fb["result"]["status"] == "SUBMITTED"
+    assert str(store.last_trusted("G1", before=datetime(2026, 9, 30, tzinfo=timezone.utc)).value) == "19712.7"
 
 
 def test_error_responses(make_client, jpeg_bytes):

@@ -10,9 +10,9 @@ Reads the cumulative energy reading (kWh or kVAh) from a photo of a digital elec
 | Status | `action` | Meaning |
 |---|---|---|
 | `SUCCESS` | `ACCEPT` | The reading passed every check. |
-| `UNCLEAR` | `RETAKE` | Photo problem: glare, an unclear or missing digit, no unit, low confidence, or not the cumulative screen (e.g. a tariff or bill screen). `retakeHint` says how to take a better photo. |
+| `UNCLEAR` | `RETAKE` | Wrong photo: not the cumulative screen (e.g. a tariff or bill screen), no unit visible, or the wrong unit. `retakeHint` says how to take a better photo. |
 | `NOMETER` | `RETAKE` | No meter display is visible; `meterReading` then holds a short explanation. |
-| `NEEDS_REVIEW` | `REVIEW` | The photo looked fine, but the reading failed a consistency check (digit count, decimal point, previous reading). |
+| `NEEDS_REVIEW` | `REVIEW` | The photo was hard to read (glare, an unclear or missing digit, low confidence), or the reading failed a consistency check (digit count, decimal point, previous reading). A person checks the reading against the photo; `uncertainDigits` says which digits to check. |
 
 The API under `/flowvision/v1/elm` (and, for existing clients, `/meter-reader/v1`) uses FlowVision's envelope (`id` / `ts` / `responseCode` / `statusCode` / `result` or `error`) for every response, errors included (except the saved photo itself; `/`, `/health` and `/ready` answer with plain JSON), along with FlowVision's statuses, feedback format, config, logging, error codes, validation and database components.
 
