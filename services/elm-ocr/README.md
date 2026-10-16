@@ -14,6 +14,8 @@ Reads the cumulative energy reading (kWh or kVAh) from a photo of a digital elec
 | `NOMETER` | `RETAKE` | No meter display is visible; `meterReading` then holds a short explanation. |
 | `NEEDS_REVIEW` | `REVIEW` | The photo was hard to read (glare, an unclear or missing digit, low confidence), or the reading failed a consistency check (digit count, decimal point, previous reading). A person checks the reading against the photo; `uncertainDigits` says which digits to check (empty: check them all). |
 
+Every reason code, with the exact `reasons[].message`, `retakeHint` and `meterReading` texts returned for it, is listed in [docs/INTEGRATION.md](docs/INTEGRATION.md#every-possible-outcome). What each request field does, and what you lose by leaving it out, is in [section 2](docs/INTEGRATION.md#2-read-a-meter-photo) there.
+
 The API under `/flowvision/v1/elm` (and, for existing clients, `/meter-reader/v1`) uses FlowVision's envelope (`id` / `ts` / `responseCode` / `statusCode` / `result` or `error`) for every response, errors included (except the saved photo itself; `/`, `/health` and `/ready` answer with plain JSON), along with FlowVision's statuses, feedback format, config, logging, error codes, validation and database components.
 
 ## Quick start
@@ -99,8 +101,8 @@ The base path is `/flowvision/v1/elm`, the per-meter prefix the shared FlowVisio
 
 | Endpoint | |
 |---|---|
-| `POST /extract-reading` | JSON: `imageURL` **or** `imageBase64`, plus optional `id`, `consumerId`, `capturedAt`, `previousReading {value, unit, capturedAt}`, `metadata`, and any other details. |
-| `POST /extract-reading/upload` | The same as multipart: an `image` file plus optional `id`, `consumerId`, `capturedAt`, `previousValue`, `previousUnit`, `previousCapturedAt`, `metadata` (JSON text). An invalid field is reported under its form field name. |
+| `POST /extract-reading` | JSON. Required: exactly one of `imageURL` and `imageBase64`. Optional, but always send them: `id`, `consumerId`, `capturedAt`. Optional: `previousReading {value, unit, capturedAt}`, `metadata`, and any other details. |
+| `POST /extract-reading/upload` | The same as multipart. Required: an `image` file. Optional, but always send them: `id`, `consumerId`, `capturedAt`. Optional: `previousValue`, `previousUnit`, `previousCapturedAt`, `metadata` (JSON text); other form fields are ignored. An invalid field is reported under its form field name. |
 | `POST /feedback` | `{"correlationId": "...", "data": {"accurate": false, "actual": "0019712.7"}}`; `accurate` may be left out when `actual` is sent. A corrected reading (`actual`), or a confirmed (`accurate: true`) SUCCESS or REVIEW reading, becomes the consumer's trusted previous reading. A REVIEW reading with a `?`, or with no number, needs an `actual`. |
 | `GET` / `PUT /meters/{consumerId}` | Per-consumer settings: `meterTypeId`, `decimals`, `digits`, `billingUnit` (kWh or kVAh). |
 | `GET /meter-types` | The known meter types. |
