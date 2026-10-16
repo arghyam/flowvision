@@ -38,16 +38,20 @@ During a key rotation the service accepts both the old and the new key, so you c
 }
 ```
 
-| Field | Required | Meaning |
-|---|---|---|
-| `id` | strongly recommended | **Your** id for this request: 1–128 characters from letters, digits, `.`, `_` and `-`, starting with a letter or digit. It is also the retry key: see [section 4](#4-timeouts-and-retries). Use a new id for every new photo. If you leave it out, the service creates one and returns it. |
-| `imageURL` | one of the two | Where the service downloads the photo from (your image endpoint). It must be reachable from the service. If the endpoint needs credentials, the operators configure them on the service side; they are sent only over HTTPS, or over plain HTTP to a private address when the operators allow private image hosts. A link with a user name or password in it (`https://user:pw@host/...`) is refused. Signed URLs work; the service stores and logs the URL without its query string and fragment. |
-| `imageBase64` | one of the two | The photo itself, base64-encoded (JPEG, PNG or WebP, at most 20 MB). Use this when the service cannot reach your image endpoint. |
-| `consumerId` | recommended | Your consumer or meter account id (a string or a number, up to 128 characters). The service uses it for the meter's settings and to compare against that consumer's previous reading. **Without it, those checks are skipped.** |
-| `capturedAt` | recommended | When the photo was taken, as an ISO 8601 date-time between the years 2000 and 2100. A time without a zone (`2026-09-30T10:15:00`) is taken as India time. If you leave it out, the time the request arrived is used. Send the capture time, not the upload or message time. |
-| `previousReading` | optional | `{"value": "0019650.2", "unit": "kWh", "capturedAt": "..."}`. It overrides the previous reading the service has stored for this consumer. |
-| `metadata` | optional | Any JSON object; it is stored with the reading. Text with the NUL character, and NaN or Infinity numbers, are refused here and in any other field. |
-| anything else | optional | Any other fields (`village`, `agentId`, `meterNumber`...) are accepted and stored with the reading. |
+Every field is either **required** (the request is refused without it) or **optional** (the request works without it). For the optional fields, the third column says what you lose by leaving them out; `id`, `consumerId` and `capturedAt` should be sent on every request.
+
+| Field | Required? | If you leave it out | Meaning |
+|---|---|---|---|
+| `imageURL` | **Yes**: exactly one of `imageURL` and `imageBase64` | Sending neither, or both, is refused with 400 `ERROR_06`. | Where the service downloads the photo from (your image endpoint). It must be reachable from the service. If the endpoint needs credentials, the operators configure them on the service side; they are sent only over HTTPS, or over plain HTTP to a private address when the operators allow private image hosts. A link with a user name or password in it (`https://user:pw@host/...`) is refused. Signed URLs work; the service stores and logs the URL without its query string and fragment. |
+| `imageBase64` | **Yes**: exactly one of `imageURL` and `imageBase64` | As above. | The photo itself, base64-encoded (JPEG, PNG or WebP, at most 20 MB). Use this when the service cannot reach your image endpoint. |
+| `id` | No, but always send it | The service creates an id and returns it. A retry after a timeout then cannot be matched to the first attempt, so the photo may be read, and paid for, twice. | **Your** id for this request: 1–128 characters from letters, digits, `.`, `_` and `-`, starting with a letter or digit. It is also the retry key: see [section 4](#4-timeouts-and-retries). Use a new id for every new photo. |
+| `consumerId` | No, but always send it | The consumer's meter settings and the previous-reading check are skipped, so more readings go to review instead of being accepted. | Your consumer or meter account id (a string or a number, up to 128 characters). The service uses it for the meter's settings and to compare against that consumer's previous reading. |
+| `capturedAt` | No, but always send it | The time the request arrived is used, which is wrong when a photo is uploaded later; the previous-reading check then uses the wrong date. | When the photo was taken, as an ISO 8601 date-time between the years 2000 and 2100. A time without a zone (`2026-09-30T10:15:00`) is taken as India time. Send the capture time, not the upload or message time. |
+| `previousReading` | No | The service uses the previous reading it has stored for this consumer. | `{"value": "0019650.2", "unit": "kWh", "capturedAt": "..."}` (`value` is required inside it). It overrides the stored previous reading. |
+| `metadata` | No | Nothing extra is stored. | Any JSON object; it is stored with the reading. Text with the NUL character, and NaN or Infinity numbers, are refused here and in any other field. |
+| anything else | No | Nothing extra is stored. | Any other fields (`village`, `agentId`, `meterNumber`...) are accepted and stored with the reading. |
+
+The same request can be sent as a multipart form to `POST /flowvision/v1/elm/extract-reading/upload`: the photo in the file field `image` (required), plus the optional text fields `id`, `consumerId`, `capturedAt`, `previousValue`, `previousUnit`, `previousCapturedAt` and `metadata` (a JSON object as text). Other form fields are ignored.
 
 The service returns the same `id` you sent. The exceptions are errors refused before the request is read: 401 `ERROR_09`, 413 `ERROR_003` for a body over 30 MB, 503 `ERROR_10` "Too many large photos", and invalid JSON or an invalid `id`. These carry a new id and are not stored.
 
@@ -90,6 +94,40 @@ Two things to watch:
 | `UNCLEAR` | `RETAKE` | Wrong photo: not the total screen (e.g. a tariff T1/T2 or bill screen), no unit visible, or the wrong unit. | Ask for a new photo and show `retakeHint` to the person taking it. `meterReading` holds the model's best reading, for information only; when the model saw no digits at all it holds a short sentence instead. |
 | `NOMETER` | `RETAKE` | No meter display is visible. | Ask for a new photo. `meterReading` holds a short explanation, not a number. |
 | `NEEDS_REVIEW` | `REVIEW` | The photo was hard to read (glare, an unclear or possibly missing digit, low confidence), or the reading failed a consistency check: wrong digit count, uncertain decimal point, lower than the previous reading, or an implausible jump. | A person checks `meterReading` against the photo, starting with the digits in `uncertainDigits` (if it is empty, check every digit), then confirms or corrects it through `/feedback`. A `?` in `meterReading` is a digit the model could not guess, and when the model could not read a single digit `meterReading` holds a short sentence: in both cases send the correct reading as `actual`. |
+
+### Every possible outcome
+
+Every reading response has one of the four statuses below. Except for `SUCCESS`, `reasons` names why. Usually it has one entry; when it has more, the first is the main one. `reasons[].message` and `retakeHint` are fixed texts, listed here exactly as they are returned. A `RETAKE` carries the `retakeHint` of its first reason; a `REVIEW` or `ACCEPT` has no `retakeHint`.
+
+| `status` / `action` | `reasons[].code` | `reasons[].message` | `retakeHint` |
+|---|---|---|---|
+| `SUCCESS` / `ACCEPT` | none | none | none |
+| `NOMETER` / `RETAKE` | `NO_DISPLAY` | No meter display is visible, or it is blank. | Take the photo straight at the meter's display, with the display switched on. |
+| `UNCLEAR` / `RETAKE` | `WRONG_SCREEN` | The display is showing another screen, not the cumulative energy reading. | Wait until the display shows the total kWh (or kVAh) reading, then take the photo. |
+| `UNCLEAR` / `RETAKE` | `UNIT_NOT_VISIBLE` | No kWh or kVAh label was seen, so it is not certain which energy total is shown (these meters show both). | Take the photo so the whole display is visible, including the kWh or kVAh label next to the reading. |
+| `UNCLEAR` / `RETAKE` | `UNIT_MISMATCH` | The display shows a different unit from the one billed for this meter. | Wait until the display shows the billed unit (kWh or kVAh), then take the photo. |
+| `NEEDS_REVIEW` / `REVIEW` | `UNREADABLE` | The reading could not be read with certainty. | none |
+| `NEEDS_REVIEW` / `REVIEW` | `DIGITS_UNCLEAR` | One or more digits are unclear, or a digit may be missing. | none |
+| `NEEDS_REVIEW` / `REVIEW` | `LOW_CONFIDENCE` | The model was not confident enough in the reading. | none |
+| `NEEDS_REVIEW` / `REVIEW` | `BAD_OUTPUT` | The model's answer was internally inconsistent. | none |
+| `NEEDS_REVIEW` / `REVIEW` | `DIGIT_COUNT_MISMATCH` | The number of digits does not match this meter type; a digit may have been dropped. | none |
+| `NEEDS_REVIEW` / `REVIEW` | `DECIMAL_UNCERTAIN` | Meter type unknown and no decimal point was seen, so the decimal position is uncertain. Set this consumer's meter type to accept readings automatically. | none |
+| `NEEDS_REVIEW` / `REVIEW` | `NO_CROSS_CHECK` | The model was not confident enough to accept this reading on its own, and this meter has no known digit count or previous reading to cross-check it. Set the consumer's meter type, or confirm this reading through feedback. | none |
+| `NEEDS_REVIEW` / `REVIEW` | `BELOW_PREVIOUS` | The reading is lower than the previous accepted reading. | none |
+| `NEEDS_REVIEW` / `REVIEW` | `JUMP_TOO_LARGE` | The increase since the previous reading is implausibly large. | none |
+| `NEEDS_REVIEW` / `REVIEW` | `READS_DISAGREE` | Independent reads of the same photo gave different results. | none |
+| `NEEDS_REVIEW` / `REVIEW` | `HISTORY_UNAVAILABLE` | The consumer's previous readings could not be checked (the database did not answer), so the reading was not compared with them. | none |
+| `NEEDS_REVIEW` / `REVIEW` | `CORRECTED_BEFORE` | A person marked the reading of this same photo wrong or corrected it, so it is not read or accepted again; the earlier model reading is shown. | none |
+
+`meterReading` holds the reading whenever the model saw digits, whatever the status. When there is no number to show, it holds one of these fixed sentences instead:
+
+| `status` | `meterReading` when there is no number |
+|---|---|
+| `NOMETER` | No meter display detected in the image (always, since there is no display) |
+| `UNCLEAR` | Not the cumulative energy reading; please retake the photo |
+| `NEEDS_REVIEW` | Reading needs manual review |
+
+`READS_DISAGREE` appears only when the operators set the service to read each photo twice (off by default). `notes`, when present, holds extra free-text details for people (for example why a reading was accepted without a cross-check); do not branch on it. Errors (`responseCode: "ERROR"`) are a separate kind of response: see [section 5](#5-errors).
 
 **Bill only on `ACCEPT`,** or on a reading a person has confirmed. The reading is returned for every photo with a display so that people can see it, but only `ACCEPT` has passed every check.
 
