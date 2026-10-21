@@ -194,8 +194,9 @@ def create_app(config: Config | None = None, reader: MeterReader | None = None, 
         reader.store = store
     image_store = make_image_store(photos)
     service = ReadingService(config, reader, store, image_store, settings)
-    log.info("Starting (%s): database %s | photos %s | logs %s | deadline %.0f s | %d reads at once per worker%s",
-             settings.environment, make_url(url).render_as_string(hide_password=True),
+    log.info("Starting (%s): model %s (%s) | database %s | photos %s | logs %s | deadline %.0f s | %d reads at once "
+             "per worker%s", settings.environment, reader.settings.model, reader.settings.provider,
+             make_url(url).render_as_string(hide_password=True),
              image_store.describe() if image_store else "not kept", service_path("logs"),
              settings.request_deadline, settings.max_concurrent_reads,
              f" | daily budget ${settings.daily_budget_usd:.2f}" if settings.daily_budget_usd else "")
@@ -246,7 +247,8 @@ def create_app(config: Config | None = None, reader: MeterReader | None = None, 
 
     docs = settings.docs_enabled
     app = FastAPI(title="Electricity Meter Reader", version="1.0", lifespan=lifespan,
-                  description="Reads the cumulative kWh/kVAh reading from a meter photo with GPT-6 Sol and checks. "
+                  description="Reads the cumulative kWh/kVAh reading from a meter photo with GPT-6 Sol or Claude, "
+                              "and checks. "
                               "Send the X-API-Key header on every call.",
                   docs_url="/docs" if docs else None, redoc_url="/redoc" if docs else None,
                   openapi_url="/openapi.json" if docs else None)

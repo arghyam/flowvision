@@ -6,6 +6,7 @@ and a folder of photos named <image_id>.jpg. By default: the trial's hand review
 photos (../trial/outputs/review_images/, local only).
 
 Costs money: about $0.023 per photo per read with GPT-6 Sol (so ~$2.30 for 100 photos at the default METER_READS=1).
+Uses the provider and model in config.yaml / METER_PROVIDER; Claude's cost per photo has not been measured yet.
 It refuses to run without --yes.
 
 Results are appended to --out, one line per photo with the model's full answer (so rule changes can be replayed
@@ -83,13 +84,14 @@ def main():
     if out.exists() and not args.fresh:
         for line in out.read_text(encoding="utf-8").splitlines():
             rec = json.loads(line)
+            # records written before the model was stored all came from GPT-6 Sol
             if rec["result"].get("status") != "ERROR" and rec.get("promptVersion") == PROMPT_VERSION \
-                    and rec.get("reads") == settings.reads:
+                    and rec.get("reads") == settings.reads and rec.get("model", "gpt-6-sol") == settings.model:
                 done[rec["image_id"]] = rec
     todo = [r for r in rows if r["image_id"] not in done]
-    est = len(todo) * settings.reads * 0.023
     print(f"{len(todo)} photos to read ({len(rows) - len(todo)} already done) x {settings.reads} read(s) "
-          f"with {settings.model}: about ${est:.2f}")
+          f"with {settings.model}: " + (f"about ${len(todo) * settings.reads * 0.023:.2f}" if settings.provider == "openai"
+                                        else "cost per photo not yet measured (GPT-6 Sol: about $0.023)"))
     if not args.yes:
         sys.exit("Add --yes to run it.")
     reader = MeterReader(settings)
@@ -102,7 +104,7 @@ def main():
             res = {"status": "ERROR", "error": str(e), "costEstimateUsd": float(getattr(e, "cost_usd", 0.0) or 0.0)}
         return {"image_id": row["image_id"], "truth_kind": row["truth_kind"], "truth": row.get("truth_display", ""),
                 "outcome": outcome_of(row["truth_kind"], row.get("truth_display", ""), res),
-                "promptVersion": PROMPT_VERSION, "reads": settings.reads, "result": res}
+                "promptVersion": PROMPT_VERSION, "model": settings.model, "reads": settings.reads, "result": res}
 
     t0 = time.time()
     new = []
