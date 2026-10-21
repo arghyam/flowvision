@@ -1,6 +1,6 @@
-# Electricity meter reader (GPT-6 Sol)
+# Electricity meter reader (GPT-6 Sol or Claude Sonnet 5.5)
 
-Reads the cumulative energy reading (kWh or kVAh) from a photo of a digital electricity meter, using OpenAI's GPT-6 Sol with checks around it. The central JalSoochak system sends a photo and gets the reading back.
+Reads the cumulative energy reading (kWh or kVAh) from a photo of a digital electricity meter, using OpenAI's GPT-6 Sol (the default) or Anthropic's Claude Sonnet 5.5, with checks around it. The central JalSoochak system sends a photo and gets the reading back.
 
 - **Calling the API** (for the JalSoochak developers): [docs/INTEGRATION.md](docs/INTEGRATION.md)
 - **Deploying on AWS** (ECS Fargate or EC2): [docs/DEPLOY_AWS.md](docs/DEPLOY_AWS.md)
@@ -20,17 +20,17 @@ The API under `/flowvision/v1/elm` (and, for existing clients, `/meter-reader/v1
 
 ## Quick start
 
-Requirements: Python 3.12 and an OpenAI API key with GPT-6 Sol access. From this directory (`services/elm-ocr`):
+Requirements: Python 3.12 and an OpenAI API key with GPT-6 Sol access, or an Anthropic API key with `METER_PROVIDER=claude`. From this directory (`services/elm-ocr`):
 
 ```bash
-cp .env.example .env                  # put OPENAI_API_KEY in it
+cp .env.example .env                  # put OPENAI_API_KEY in it (or ANTHROPIC_API_KEY and METER_PROVIDER=claude)
 pip install --require-hashes -r requirements.lock   # pinned with hashes, as in the image
 python src/run.py                     # development server: http://localhost:8000, API docs at /docs
 ```
 
 **OpenAI or Claude.** One setting chooses the model that reads the photos: `METER_PROVIDER=openai` (GPT-6 Sol, the default and the only one evaluated on our photos) or `METER_PROVIDER=claude` (Claude Sonnet 5.5, through Anthropic's API; set `ANTHROPIC_API_KEY` instead of `OPENAI_API_KEY`). Set it in `.env` (or `provider:` in `src/conf/config.yaml`) and restart the service. Both use the same prompt, answer format, checks, budget and storage; each reading records the model that produced it (`model`). Claude's model, effort and prices are in the `claude:` and `pricing.claude` sections of `config.yaml`.
 
-In a second terminal, send it a photo (one model call, about $0.023 with GPT-6 Sol):
+In a second terminal, send it a photo (one model call, about $0.023 with GPT-6 Sol, about $0.015 with Claude):
 
 ```bash
 python scripts/run.py path/to/photo.jpg
@@ -62,7 +62,7 @@ These protections are always on:
 |---|---|
 | **Safe retries** | The request `id` is an idempotency key. The same id returns the stored result without a second model call, and an id still being processed gets 409 (retry shortly). The same id for a different consumer or photo is refused (409 `ERROR_15`), and so is a photo first sent as base64 and then as a link under the same id: resend an id in the form first used. After a failed attempt, the same consumer may resend the id with a corrected photo; another consumer may not. |
 | **No double spend on the same photo** | The identical photo file of the same consumer, sent again with a new id within 7 days of its original read, gets that result without a model call (`METER_DUPLICATE_PHOTO_HOURS`; `0` turns off this reuse and the in-flight check below). While that photo is still being read under another id, the new request gets 409 `ERROR_12` (retryable), and its retry gets the result: a double submit pays once. The photo is read again if the consumer's meter settings really changed since (a `PUT /meters` with the same settings changes nothing). A photo whose reading a person marked wrong or corrected is never read or accepted again, whatever the setting: it comes back `NEEDS_REVIEW` (`CORRECTED_BEFORE`), at no cost. A confirmation (`accurate: true`, or an `actual` equal to the returned reading) is not a correction. |
-| **Time limit** | A reading takes about 20 s and at most `METER_REQUEST_DEADLINE` (100 s). The model call is retried at most once, and only for errors OpenAI did not bill. |
+| **Time limit** | A reading takes about 20 s with GPT-6 Sol (about 5 s with Claude) and at most `METER_REQUEST_DEADLINE` (100 s). The model call is retried at most once, and only for errors the provider did not bill. |
 | **Load** | At most `METER_MAX_CONCURRENT_READS` (8) readings at once per worker (sized for a 4 GB task with 2 workers); as many more wait up to 30 s for a slot, and beyond that a request gets 503 (retryable) instead of an unbounded queue. Raise it only with more memory. |
 | **Cost** | A daily cap of **$25** (about 1,080 photos; `METER_DAILY_BUDGET_USD`) stops model calls for the rest of the India-time day once reached (429). Before each model call the request reserves $0.05 on its own row (`limits.reserve_per_call_usd`; the costliest of 384 real calls was $0.043), under a lock that every worker and instance shares, so readings in flight count; a call is made only if its reservation still fits within the cap (a cap below $0.05 allows no calls). The reservation is then replaced by the real cost, so spend can end above the cap only if a call costs more than its reservation (none has so far). When only the reservations of other readings in progress are in the way, the 429 is retryable (`Retry-After: 60`). A retried id's own billed earlier attempt counts as spent, not as in progress, so with nothing else in progress it is told the budget is used up (not retryable). Failed calls that OpenAI may still bill are counted too, and a retried failed id keeps that cost. |
 | **Input** | Request bodies up to 30 MB, checked (with the API key) before the body is read, and at most 150 MB of photo request bodies held at once per worker (`METER_MAX_INFLIGHT_BODY_BYTES`, by `Content-Length`; one more gets 503, retryable). A body refused for its size (413) or for the photo body limit (503) is read and discarded first, so the client gets the error, not a connection reset; a body that stalls for 60 s gets a retryable 503 (send it again). Images up to 20 MB, and 250 megapixels (single-scan grey or colour JPEG) or 16 (PNG, WebP, and progressive, multi-scan or CMYK JPEG), with one full-size image decode at a time per process. Dates outside 2000–2100, the NUL character in any text, NaN or Infinity (in details or as the id), and details nested more than 20 levels deep are refused (400). |
@@ -120,7 +120,7 @@ Errors carry `errorCode`, `errorMsg` and `retryable`, with the HTTP status equal
 ## How a photo is checked
 
 1. **Prepare.** The image is validated (JPEG/PNG/WebP; only baseline or progressive JPEGs, as cameras and phones write, so lossless and other unusual JPEGs are refused; at most 20 MB, and at most 250 megapixels for a single-scan grey or colour JPEG, or 16 for PNG, WebP and progressive, multi-scan or CMYK JPEGs), rotated according to its EXIF data, and shrunk to at most 2048 px. Large single-scan JPEGs are decoded at reduced size (the longer side still at least 3/4 of 2048).
-2. **Read.** GPT-6 Sol reads it with the strict prompt in `src/service/vision/prompt.py` (high reasoning effort, high image detail). The model:
+2. **Read.** The model in use (GPT-6 Sol with high reasoning effort and high image detail, or Claude Sonnet 5.5 with high effort; only that model, no fallback) reads it with the strict prompt in `src/service/vision/prompt.py`. The model:
    - reads digit by digit, flagging any digit it can't read;
    - copies the LCD label and the meter's printed make and model code;
    - gives a best guess for unclear digits and the decimal places.
