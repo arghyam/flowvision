@@ -19,8 +19,9 @@ MAX_RETRY_WAIT = 20.0
 
 class ModelError(RuntimeError):
     """The model call failed or returned something unusable. `retryable`: sending the request again later can work.
-    `alert`: needs an operator (e.g. the OpenAI account is out of credit). `usage`: token usage of a call that was
-    answered (and billed) but unusable; `maybe_billed`: no answer, but OpenAI may still bill it (a timeout).
+    Raised by both model clients. `alert`: needs an operator (e.g. the provider account is out of credit, or the key
+    was rejected). `usage`: token usage of a call that was answered (and billed) but unusable; `maybe_billed`: no
+    answer, but the provider may still bill it (a timeout).
     `cost_usd` is filled in by the reader."""
 
     def __init__(self, message, retryable=False, alert=False, usage=None, maybe_billed=False):

@@ -2,7 +2,6 @@
 import base64
 import http.server
 import importlib.util
-import json
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -42,8 +41,6 @@ class _Host:
     """A small image host: /p?photoId=N serves photo N; /trickle sends a photo one byte at a time."""
 
     def __init__(self):
-        host = self
-
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
                 if self.path.startswith("/trickle"):

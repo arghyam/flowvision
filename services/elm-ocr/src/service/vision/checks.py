@@ -1,6 +1,6 @@
 """
 Safety checks. A reading is ACCEPTED only when every check passes; anything doubtful becomes RETAKE
-(the photo shows no display, the wrong screen or the wrong unit: ask for a new one) or NEEDS_REVIEW
+(the photo shows no display, the wrong screen, the wrong unit or no unit label: ask for a new one) or NEEDS_REVIEW
 (the photo is hard to read, e.g. glare or an unclear digit, or the result failed a consistency check:
 a person checks the reading against the photo).
 """
@@ -50,7 +50,9 @@ _READING_RE = re.compile(r"^\d+(\.\d+)?$")
 # LCD labels that mark a screen other than the grand total, whatever the model concluded about the screen:
 # tariff/time-of-day zones (T1, T01, T.1, kWhT1, TOD, TOU, TARIFF, RATE 1, ZONE, Z1, OBIS 1.8.1...), billing history
 # (01 BILL, 01 B, a bare 01 bill index, HIST, PREV, LAST), maximum demand (MD, MDkW, MAX DEMAND) and prepaid
-# balance/money (INR, Rs, ₹, BAL, CREDIT, LTR).
+# balance/money (INR, Rs, ₹, BAL, CREDIT, LTR), an export register (EXPORT, EXP, EXPORTED; OBIS 2.8.x), a history register (H, H1, H-1, H01... up to H12) and a billing
+# register (B1, B-1, B01... up to B12). The h of the unit itself (kWh, kW h, kW·h, kVA h) is not an H label, and a B
+# without a number is not a B label: it is the phase indicator (R Y B) shown on every screen, alone when a phase is out.
 _SEP = r"\s*[-_.:\u2013\u2014]?\s*"            # T1, T 1, T-1, T.1, T_1, T:1, T – 1
 NOT_TOTAL_LABEL = re.compile(
     r"(?:(?<![A-Z0-9])|(?<=[WA]H))T" + _SEP + r"0?[1-8](?![0-9])|\bTOD(?![A-Z])|\bTOU(?![A-Z])|\bTZ(?![A-Z])"
@@ -58,7 +60,11 @@ NOT_TOTAL_LABEL = re.compile(
     r"|BILL|\bHIST|\bPREV|\bLAST\b|(?<![0-9.])0[1-9](?![0-9.])"
     r"|\bM\.?\s?D(?=I\b|K|[0-9]|\b)|\bDEMAND|\bINR\b|\bRS\b|₹|\bBAL|\bCREDIT|\bLTR\b"
     r"|\bT" + _SEP + r"(?:I{1,3}|IV|VI{0,3})\b|\bTR" + _SEP + r"0?[1-8](?![0-9])|\b(?:OFF" + _SEP + r")?PEAK\b"
-    r"|\b2\.8\.[0-9]\b", re.IGNORECASE)
+    r"|\b2\.8\.[0-9]\b"
+    r"|(?<![A-Z0-9])(?<![WA]\s)(?<![WA]\s\s)(?<![WA][\u00b7.\-_])H(?:" + _SEP + r"0?(?:1[0-2]|[1-9]))?(?![A-Z0-9])"
+    r"|(?<![A-Z0-9])B" + _SEP + r"0?(?:1[0-2]|[1-9])(?![A-Z0-9])"
+    r"|(?:\b|(?<=[WA]H))EXP(?:ORT(?:ED)?)?(?![A-Z])",
+    re.IGNORECASE)
 # Screens whose number is not an energy register: their reading keeps the point shown, not the kWh format.
 NOT_ENERGY_SCREENS = ("max_demand", "voltage_current_pf", "date_time", "meter_id", "test_or_segment_check")
 NOT_ENERGY_UNIT = re.compile(r"^(m?V|kV|m?A|Hz|k?W|k?VA|k?VAr|PF|%|INR|Rs\.?|₹)$", re.IGNORECASE)
@@ -189,7 +195,8 @@ class Previous:
 
 @dataclass
 class Candidate:
-    """The model's best guess at the reading, for retakes and reviews. Never bill on it."""
+    """The reading shown with a result: the checked reading, or for retakes and reviews the model's best guess
+    (never bill on a guess)."""
     reading: str | None = None                          # e.g. "0010468.5"; may contain "?" if the model left digits blank
     decimal_source: str | None = None                   # consumer | registry | visible_point | previous_reading | model_guess
     uncertain_digits: list = field(default_factory=list)  # 1-based positions among the digits (leading zeros included)
@@ -287,8 +294,9 @@ def decide(outcomes, billing_unit=None, previous=None, captured_at=None, max_dai
             return d
     # A dropped digit or shifted decimal point is caught either by the meter's known digit count or by comparing
     # with a previous reading. With neither, a clear read is still accepted: every digit legible, digit count certain,
-    # unit and decimal point seen, and confidence >= clear_read_confidence (trial replay: 10/10 Sol v2 and 14/14
-    # Astra v2 such reads were right; 18/18 even with the looser v3 prompt at >= 0.95). Anything less, a person confirms.
+    # unit and decimal point seen, and confidence >= clear_read_confidence (trial replay with the v2 prompt: 10/10 such
+    # GPT-6 Sol reads and 14/14 GPT-6 Astra reads were right; 18/18 even with the looser v3 prompt at >= 0.95; not yet
+    # checked for Claude). Anything less, a person confirms.
     if not best.digits_fixed and not comparable:
         if min(o.confidence for o in oks) >= clear_read_confidence:
             d.notes.append("accepted as a clear read: no meter digit count or previous reading to cross-check")

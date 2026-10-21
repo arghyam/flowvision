@@ -1,5 +1,5 @@
 # Same layout as FlowVision's image (venv builder stage, PYTHONPATH=/app/src, non-root user, gunicorn + uvicorn
-# workers), without the OpenCV/PyTorch dependencies: the reading is done by the OpenAI API.
+# workers), without the OpenCV/PyTorch dependencies: the reading is done by the model provider's API (OpenAI or Anthropic).
 #
 #   docker build -t meter-reader .                  # the service (the last stage, `runtime`, is the default target)
 #   docker build --target test -t meter-reader-test . && docker run --rm meter-reader-test   # runs the tests
@@ -20,7 +20,7 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN python -m venv $VIRTUAL_ENV
 
 WORKDIR /app
-# Install from the hashed lock (regenerate it from requirements.txt; see README)
+# Install from the hashed lock (regenerate it from requirements.txt; the command is at the top of that file)
 COPY requirements.lock .
 RUN pip install --require-hashes -r requirements.lock
 

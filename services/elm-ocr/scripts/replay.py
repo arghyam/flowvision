@@ -1,12 +1,12 @@
 """
 Re-score saved evaluation results under the current rules, or different thresholds, with no API calls (free).
 
-evaluate.py stores the model's full answers. This feeds them back through the reader in place of OpenAI, so a
+evaluate.py stores the model's full answers. This feeds them back through the reader in place of the model, so a
 change to the checks, the meter types or a threshold can be measured on the same photos without paying again.
 Each photo is judged on its own, without history, as in evaluate.py.
 
-    python scripts/replay.py data/evaluation_full100.jsonl
-    python scripts/replay.py data/evaluation_full100.jsonl --clear-read-confidence 0.90 --min-confidence 0.85
+    python scripts/replay.py data/evaluation.jsonl --images <photo folder>
+    python scripts/replay.py data/evaluation.jsonl --images <photo folder> --clear-read-confidence 0.90
 """
 import argparse
 import json
@@ -18,12 +18,12 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "src"))
 sys.path.insert(0, str(HERE))
 from conf.config import Config, load_settings  # noqa: E402
-from evaluate import TRIAL, outcome_of, result_record, summarize  # noqa: E402
+from evaluate import outcome_of, result_record, summarize  # noqa: E402
 from service.vision import MeterReader, ReaderSettings  # noqa: E402
 
 
 class SavedAnswers:
-    """Stands in for OpenAIVisionClient: returns the answers saved for one photo, in order."""
+    """Stands in for the model client (OpenAI or Claude): returns the answers saved for one photo, in order."""
 
     def __init__(self, saved):
         self.saved, self.calls = saved, 0
@@ -38,14 +38,14 @@ class SavedAnswers:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("results", help="a JSONL file written by evaluate.py")
-    ap.add_argument("--images", default=str(TRIAL / "review_images"))
+    ap.add_argument("--images", required=True, help="folder of the evaluated photos, named <image_id>.jpg")
     ap.add_argument("--min-confidence", type=float)
     ap.add_argument("--clear-read-confidence", type=float)
     args = ap.parse_args()
 
     try:
         settings = load_settings(Config())
-    except RuntimeError:                      # no OPENAI_API_KEY: not needed, nothing is sent
+    except RuntimeError:                      # no API key (OpenAI or Anthropic): not needed, nothing is sent
         settings = ReaderSettings(openai_api_key="replay")
     overrides = {k: v for k, v in (("min_confidence", args.min_confidence),
                                    ("clear_read_confidence", args.clear_read_confidence)) if v is not None}

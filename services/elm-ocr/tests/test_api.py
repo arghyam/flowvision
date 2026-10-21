@@ -38,7 +38,7 @@ def test_success_follows_flowvision_envelope(make_client, jpeg_bytes):
 
 
 def test_status_mapping(make_client, jpeg_bytes, monkeypatch):
-    monkeypatch.setenv("METER_DUPLICATE_PHOTO_HOURS", "0")      # three fake models, one photo: read it each time
+    monkeypatch.setenv("METER_DUPLICATE_PHOTO_HOURS", "0")      # four fake models, one photo: read it each time
     nomatch = make_client(answer(None, status="NO_DISPLAY", screen="not_visible"))
     r = nomatch.post(f"{BASE}/extract-reading", json={"imageBase64": b64(jpeg_bytes)}).json()["result"]
     assert r["status"] == "NOMETER" and r["data"]["action"] == "RETAKE" and r["data"]["retakeHint"]
