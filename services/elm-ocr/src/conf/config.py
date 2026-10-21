@@ -59,16 +59,41 @@ def environment() -> str:
     return os.getenv("METER_ENV", "development").strip().lower() or "development"
 
 
+PROVIDERS = ("openai", "claude")
+CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
 def load_settings(config: Config) -> ReaderSettings:
-    """Reader settings from config.yaml, overridable per deployment with METER_* environment variables."""
-    key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not key:
+    """Reader settings from config.yaml, overridable per deployment with METER_* environment variables.
+    `provider` (METER_PROVIDER) chooses the model: "openai" (GPT-6 Sol, the default) or "claude"; only that provider's
+    API key is needed, and METER_MODEL, METER_REASONING_EFFORT and METER_REQUEST_TIMEOUT apply to it."""
+    provider = str(_env("METER_PROVIDER", config.find("provider", "openai"))).strip().lower()
+    if provider not in PROVIDERS:
+        raise RuntimeError(f"METER_PROVIDER (or provider in config.yaml) must be one of {', '.join(PROVIDERS)}, "
+                           f"not {provider!r}")
+    claude = provider == "claude"
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if claude and not anthropic_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set (METER_PROVIDER=claude)")
+    if not claude and not openai_key:
         raise RuntimeError("OPENAI_API_KEY is not set")
-    effort = _env("METER_REASONING_EFFORT", config.find("openai.reasoning_effort", "high"))
+    section = "claude" if claude else "openai"
+    model = _env("METER_MODEL", config.find(f"{section}.model", "claude-sonnet-5-5" if claude else "gpt-6-sol"))
+    if str(model).lower().startswith("claude") != claude:      # e.g. METER_MODEL=gpt-6-sol left set after switching
+        raise RuntimeError(f"model {model!r} is not a {provider} model: set METER_MODEL (or {section}.model in "
+                           f"config.yaml) to match METER_PROVIDER={provider}")
+    effort = _env("METER_REASONING_EFFORT",
+                  config.find("claude.effort" if claude else "openai.reasoning_effort", "high"))
+    effort = None if str(effort).lower() in ("none", "off", "") else str(effort).lower()
+    if claude and effort is not None and effort not in CLAUDE_EFFORTS:
+        raise RuntimeError(f"Claude effort must be one of {', '.join(CLAUDE_EFFORTS)} (or none), not {effort!r}")
+    prices = "pricing.claude." if claude else "pricing."
     return ReaderSettings(
-        openai_api_key=key,
-        model=_env("METER_MODEL", config.find("openai.model", "gpt-6-sol")),
-        reasoning_effort=None if str(effort).lower() in ("none", "off", "") else effort,
+        openai_api_key=openai_key,
+        provider=provider,
+        model=model,
+        reasoning_effort=effort,
         image_detail=_env("METER_IMAGE_DETAIL", config.find("openai.image_detail", "high")),
         reads=max(1, _env("METER_READS", int(config.find("reader.reads", 1)), int)),
         min_confidence=_env("METER_MIN_CONFIDENCE", float(config.find("reader.min_confidence", 0.9)), float),
@@ -76,15 +101,23 @@ def load_settings(config: Config) -> ReaderSettings:
                                    float(config.find("reader.clear_read_confidence", 0.95)), float),
         max_daily_increase=_env("METER_MAX_DAILY_INCREASE", float(config.find("reader.max_daily_increase", 300)), float),
         openai_base_url=_env("OPENAI_BASE_URL", config.find("openai.base_url", "https://api.openai.com/v1")).rstrip("/"),
-        request_timeout=_env("METER_REQUEST_TIMEOUT", float(config.find("openai.timeout_seconds", 90)), float),
-        max_attempts=max(1, _env("METER_OPENAI_ATTEMPTS", int(config.find("openai.max_attempts", 2)), int)),
+        anthropic_api_key=anthropic_key,
+        anthropic_base_url=_env("ANTHROPIC_BASE_URL",
+                                config.find("claude.base_url", "https://api.anthropic.com")).rstrip("/"),
+        anthropic_workspace_id=str(_env("ANTHROPIC_WORKSPACE_ID", config.find("claude.workspace_id", ""))).strip(),
+        claude_refusal_fallback=_bool(_env("METER_CLAUDE_REFUSAL_FALLBACK",
+                                           config.find("claude.refusal_fallback", True))),
+        request_timeout=_env("METER_REQUEST_TIMEOUT", float(config.find(f"{section}.timeout_seconds", 90)), float),
+        # METER_OPENAI_ATTEMPTS keeps its meaning (OpenAI only); Claude's comes from claude.max_attempts
+        max_attempts=max(1, int(config.find("claude.max_attempts", 2)) if claude
+                         else _env("METER_OPENAI_ATTEMPTS", int(config.find("openai.max_attempts", 2)), int)),
         max_image_bytes=int(config.find("file_size_limit", 20971520)),
         max_image_side=int(config.find("reader.max_image_side", 2048)),
         max_image_pixels=int(config.find("reader.max_image_pixels", 16_000_000)),
         max_jpeg_pixels=int(config.find("reader.max_jpeg_pixels", 250_000_000)),
         meter_types_file=_env("METER_TYPES_FILE", config.find("reader.meter_types_file")),
-        price_input_per_m=float(config.find("pricing.input_per_million", 2.0)),
-        price_output_per_m=float(config.find("pricing.output_per_million", 10.0)),
+        price_input_per_m=float(config.find(prices + "input_per_million", 2.0)),
+        price_output_per_m=float(config.find(prices + "output_per_million", 10.0)),
     )
 
 

@@ -62,10 +62,22 @@ def previous_from(value, unit=None, captured_at=None):
     return Previous(value=checks.parse_reading(value), unit=checks.normalize_unit(unit), captured_at=_aware(captured_at))
 
 
+def make_client(settings):
+    """The model client for settings.provider: OpenAI (the default) or Claude."""
+    if settings.provider == "claude":
+        try:
+            from .claude_client import ClaudeVisionClient       # Anthropic's SDK is only needed for Claude
+        except ImportError as e:
+            raise RuntimeError("METER_PROVIDER=claude needs the anthropic package "
+                               "(pip install --require-hashes -r requirements.lock)") from e
+        return ClaudeVisionClient(settings)
+    return OpenAIVisionClient(settings)
+
+
 class MeterReader:
     def __init__(self, settings, client=None, store=None, registry=None):
         self.settings = settings
-        self.client = client or OpenAIVisionClient(settings)
+        self.client = client or make_client(settings)
         self.store = store
         self.registry = registry or MeterTypeRegistry.load(settings.meter_types_file)
 

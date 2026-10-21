@@ -1,4 +1,5 @@
-"""GPT-6 Sol meter reading with safety checks (no web framework or database dependencies)."""
+"""Meter reading with GPT-6 Sol or Claude (settings.provider) and safety checks (no web framework or database
+dependencies)."""
 from .checks import ACCEPTED, NEEDS_REVIEW, RETAKE, Previous
 from .images import ImageError
 from .meter_types import MeterType, MeterTypeRegistry

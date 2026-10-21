@@ -28,7 +28,9 @@ pip install --require-hashes -r requirements.lock   # pinned with hashes, as in 
 python src/run.py                     # development server: http://localhost:8000, API docs at /docs
 ```
 
-In a second terminal, send it a photo (one OpenAI call, about $0.023):
+**OpenAI or Claude.** One setting chooses the model that reads the photos: `METER_PROVIDER=openai` (GPT-6 Sol, the default and the only one evaluated on our photos) or `METER_PROVIDER=claude` (Claude Sonnet 5.5, through Anthropic's API; set `ANTHROPIC_API_KEY` instead of `OPENAI_API_KEY`). Set it in `.env` (or `provider:` in `src/conf/config.yaml`) and restart the service. Both use the same prompt, answer format, checks, budget and storage; each reading records the model that produced it (`model`). Claude's model, effort and prices are in the `claude:` and `pricing.claude` sections of `config.yaml`.
+
+In a second terminal, send it a photo (one model call, about $0.023 with GPT-6 Sol):
 
 ```bash
 python scripts/run.py path/to/photo.jpg
@@ -167,7 +169,8 @@ All settings are in `src/conf/config.yaml` (or the file named by `CONFIG_PATH`),
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OPENAI_API_KEY` | required | |
+| `METER_PROVIDER` | `openai` | The model that reads the photos: `openai` (GPT-6 Sol) or `claude` (Claude Sonnet 5.5). |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | required | The key of the provider in use. With an Anthropic key that is not scoped to a workspace (`sk-ant-usr...`), also set `ANTHROPIC_WORKSPACE_ID`. |
 | `METER_ENV` | `development` | `production` enforces the settings above, JSON logs, docs off. |
 | `METER_SERVICE_API_KEY` | unset | Clients send it as `X-API-Key`; comma-separate two keys to rotate. |
 | `METER_DB_URL`, `METER_IMAGE_DIR` | SQLite, `data/images` | Storage. The other `METER_DB_*` settings (pool size, timeouts) are listed in `.env.example` and DEPLOY_AWS.md. |
@@ -177,15 +180,15 @@ All settings are in `src/conf/config.yaml` (or the file named by `CONFIG_PATH`),
 | `METER_REQUEST_DEADLINE`, `METER_MAX_CONCURRENT_READS`, `METER_BUSY_WAIT_SECONDS` | `100`, `8`, `30` | Time limit per reading; readings at once per worker (raise it only with more memory); wait for a free slot. |
 | `METER_MAX_BODY_BYTES`, `METER_MAX_INFLIGHT_BODY_BYTES` | 30 MB, 150 MB | Largest request body; photo request bodies held at once per worker (by `Content-Length`). |
 | `METER_MIN_CONFIDENCE`, `METER_CLEAR_READ_CONFIDENCE`, `METER_MAX_DAILY_INCREASE` | `0.90`, `0.95`, `300` | Check thresholds. |
-| `METER_MODEL`, `METER_REASONING_EFFORT` | `gpt-6-sol`, `high` | Only this combination has been tested. |
+| `METER_MODEL`, `METER_REASONING_EFFORT` | `gpt-6-sol`, `high` (Claude: `claude-sonnet-5-5`, `high`) | The model and effort of the provider in use. Only GPT-6 Sol at `high` has been evaluated on our photos. |
 
-**Cost and speed:** about $0.023 and 20 s per photo, almost all of it waiting on OpenAI. Each response includes `costEstimateUsd`.
+**Cost and speed:** about $0.023 and 20 s per photo with GPT-6 Sol, almost all of it waiting on OpenAI. Claude Sonnet 5.5 has the same price per token ($2 / $10 per million) but its cost and time per photo have not been measured yet. Each response includes `costEstimateUsd`.
 
 ## Tests and evaluation
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q                               # 228 tests, fake model, no cost (3 run only on PostgreSQL)
+python -m pytest -q                               # 256 tests, fake model, no cost (3 run only on PostgreSQL)
 METER_TEST_DB_URL=postgresql+psycopg2://user@localhost:5432/meter_test METER_DB_NULL_POOL=true python -m pytest -q
 python scripts/evaluate.py --yes --limit 10       # real API on 10 hand-checked trial photos (~$0.23)
 python scripts/evaluate.py --yes                  # all 100 (~$2.30); results go to data/evaluation.jsonl
@@ -209,8 +212,8 @@ src/
   error/, models/, validation/    error codes, request/response models, image validation
   service/api/      request handling (reading_service), limits (guards), storage (metadata_service, database,
                     image_store: local folder or S3)
-  service/vision/   the reader, with no web or database code: prompt, openai_client, net, images, meter_types,
-                    checks, reader, settings
+  service/vision/   the reader, with no web or database code: prompt, openai_client, claude_client (Anthropic SDK),
+                    net, images, meter_types, checks, reader, settings
 scripts/            run.py (send a photo to the service), evaluate.py (real-API evaluation),
                     replay.py (free re-scoring of saved answers)
 tests/              pytest suite with a fake model client
@@ -219,7 +222,7 @@ docs/               INTEGRATION.md (API contract), DEPLOY_AWS.md (deployment)
 
 ## Privacy
 
-Photos are sent to OpenAI; approval for this has been given. Every photo is also kept in `data/images/` or S3, for research and for checking readings. File names hold no consumer details; the database links photo, consumer and reading. These are consumer photos:
+Photos are sent to OpenAI; approval for this has been given. With `METER_PROVIDER=claude` they are sent to Anthropic instead, which needs its own approval before real photos are used. Every photo is also kept in `data/images/` or S3, for research and for checking readings. File names hold no consumer details; the database links photo, consumer and reading. These are consumer photos:
 - never publish or share them;
 - restrict access to the folder or bucket;
 - set a retention period (S3 lifecycle rule);

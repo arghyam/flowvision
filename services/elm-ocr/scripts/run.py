@@ -1,6 +1,6 @@
 """
 Send a meter photo to the running service from the terminal, the way the other system will call it, and show the
-reading and what was saved. Each photo is one OpenAI call (about $0.023).
+reading and what was saved. Each photo is one model call (about $0.023 with GPT-6 Sol).
 
 This is the client. The service itself is started with src/run.py, in another terminal:
 
@@ -117,7 +117,7 @@ def main():
 
     base = args.server.rstrip("/") + args.base_path
     print(f"Sending {'URL ' + body['imageURL'] if 'imageURL' in body else path.name} to {base}/extract-reading "
-          f"(one OpenAI call, about $0.023) ...")
+          f"(one model call, about $0.023 with GPT-6 Sol) ...")
     t0 = time.time()
     status, resp = call("POST", f"{base}/extract-reading", body, args.api_key)
     if server:

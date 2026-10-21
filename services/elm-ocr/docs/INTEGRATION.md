@@ -184,7 +184,7 @@ The HTTP status equals `statusCode`. (The operators can switch the service to Fl
 | `ERROR_08` | 404 | no | Not found: no such reading (`/readings`, `/feedback`), no stored settings for this consumer (`GET /meters/{consumerId}`), or an unknown path. |
 | `ERROR_12` | 409 | yes | A request with this `id` is still being processed, or the same photo of this consumer is being read under another id. |
 | `ERROR_11` | 429 | only near the cap | The service's daily model budget is used up; readings resume the next day (India time), `retryable: false`. Tell the operators. Near the cap, when only other readings still in progress (each reserves $0.05) are in the way, the message says "retry in a minute", with `retryable: true` and `Retry-After: 60`. |
-| `ERROR_04` | 502 | per response | The model (OpenAI) failed or did not answer in time. Retry when `retryable` is true. |
+| `ERROR_04` | 502 | per response | The model (OpenAI, or Anthropic when the service runs Claude) failed or did not answer in time. Retry when `retryable` is true. |
 | `ERROR_10` | 503 | yes | The service is busy: too many readings at once, or too many large photos being received at once ("Too many large photos are being processed"; refused before the body is read, so it is not stored and the response carries a new id, not yours). Wait for `Retry-After`. |
 | `ERROR_13` | 503 | yes | The service's database is unavailable. |
 | `ERROR_14` | 500 | yes | Unexpected error. Quote the `id` to the operators. |

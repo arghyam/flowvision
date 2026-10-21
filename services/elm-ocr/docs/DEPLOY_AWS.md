@@ -16,10 +16,10 @@ JalSoochak central system ──HTTPS──> Application Load Balancer ──HTT
 |---|---|
 | **RDS PostgreSQL 16** | `db.t4g.small` is enough for a pilot. Enable automated backups (7+ days), storage encryption and Multi-AZ if the pilot must survive a zone outage. Put it in private subnets, and have its security group accept 5432 only from the service. Create the user and a database it owns (since PostgreSQL 15 an ordinary user cannot create tables in a database it does not own): `CREATE USER meter_reader WITH PASSWORD '...'; CREATE DATABASE meter_reader OWNER meter_reader;`. The service creates its tables on first start and checks them on every start. `meter_reader_db_ddl.sql` is the same schema, if a DBA prefers to create it; run it as that user. |
 | **S3 bucket** for photos | Block all public access (default). Use SSE-S3 encryption (the service also asks for AES256 on each upload), versioning optional. Add a lifecycle rule for the retention period agreed for consumer photos (e.g. expire after 365 days). |
-| **Secrets Manager** | `OPENAI_API_KEY`, `METER_SERVICE_API_KEY` (a long random string, shared with the JalSoochak team) and `METER_DB_URL` (includes the DB password). |
+| **Secrets Manager** | `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY` with `METER_PROVIDER=claude`), `METER_SERVICE_API_KEY` (a long random string, shared with the JalSoochak team) and `METER_DB_URL` (includes the DB password). |
 | **IAM roles** | The **task role** (ECS) or instance profile (EC2) that the service runs as: `s3:PutObject` and `s3:GetObject` on `arn:aws:s3:::<bucket>/<prefix>/*`, nothing else. On ECS, the **task execution role** also needs `AmazonECSTaskExecutionRolePolicy` plus `secretsmanager:GetSecretValue` on the service's secrets (the three above, plus `METER_IMAGE_URL_HEADERS` if the image endpoint needs credentials) (and `kms:Decrypt` if they use a customer-managed key); without it the tasks fail to start. |
 | **Application Load Balancer** | HTTPS listener (ACM certificate) forwarding to a target group on port 8000. **Idle timeout: 120 seconds** (Attributes → Connection idle timeout). Health check: `GET /health`, 200, interval 15 s, timeout 5 s. Internal if JalSoochak calls from inside the VPC or over a peering/VPN; internet-facing otherwise, optionally with a security group or WAF allow-list for JalSoochak's IPs. **Do not put API Gateway in front**: its 29–30 s limit is shorter than a slow reading. |
-| **Security groups** | ALB: 443 from the callers. Service: 8000 from the ALB only. Outbound: 443 to the internet (OpenAI, the JalSoochak image host, S3) and 5432 to RDS. |
+| **Security groups** | ALB: 443 from the callers. Service: 8000 from the ALB only. Outbound: 443 to the internet (OpenAI or Anthropic, the JalSoochak image host, S3) and 5432 to RDS. |
 | **CloudWatch** | Log group for the service (retention, e.g. 90 days; the logs contain consumer ids). Alarms: see [section 5](#5-monitoring). |
 
 ## 2. Environment variables
@@ -30,6 +30,7 @@ Set these as ECS task environment variables and secrets, or in `/etc/meter-reade
 |---|---|
 | `METER_ENV` | `production` |
 | `OPENAI_API_KEY` | secret |
+| `METER_PROVIDER` | `openai` (default, GPT-6 Sol) or `claude` (Claude Sonnet 5.5; then set `ANTHROPIC_API_KEY`, a secret, instead of `OPENAI_API_KEY`) |
 | `METER_SERVICE_API_KEY` | secret. Comma-separate two keys while rotating. |
 | `METER_DB_URL` | secret: `postgresql+psycopg2://USER:PASSWORD@RDS-ENDPOINT:5432/meter_reader?sslmode=require` |
 | `METER_IMAGE_DIR` | `s3://BUCKET/meter-photos` |

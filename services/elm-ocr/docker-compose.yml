@@ -1,7 +1,8 @@
 # A production-like stack on one machine: the service (production mode) and PostgreSQL. For a laptop or a single
 # EC2 instance; on AWS proper, use RDS and S3 instead (docs/DEPLOY_AWS.md): set METER_DB_URL and METER_IMAGE_DIR in
 # .env and they replace the local defaults below.
-#   cp .env.example .env    # set OPENAI_API_KEY, METER_SERVICE_API_KEY, POSTGRES_PASSWORD, METER_IMAGE_URL_ALLOWED_HOSTS
+#   cp .env.example .env    # set OPENAI_API_KEY (or METER_PROVIDER=claude and ANTHROPIC_API_KEY), METER_SERVICE_API_KEY,
+#                           # POSTGRES_PASSWORD, METER_IMAGE_URL_ALLOWED_HOSTS
 #   docker compose up --build -d
 #   curl localhost:8000/ready
 services:

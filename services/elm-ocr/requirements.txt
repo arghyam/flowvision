@@ -13,3 +13,5 @@ boto3
 PyYAML
 python-dotenv
 filetype
+# Claude (METER_PROVIDER=claude); 1.x is built on httpx2, which src/service/vision/claude_client.py imports
+anthropic>=1.15
