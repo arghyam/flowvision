@@ -125,7 +125,7 @@ Errors carry `errorCode`, `errorMsg` and `retryable`, with the HTTP status equal
    - copies the LCD label and the meter's printed make and model code;
    - gives a best guess for unclear digits and the decimal places.
 3. **Per-read checks** (`src/service/vision/checks.py`):
-   - It must be the cumulative screen. A label marking a tariff total (T1, T01, T.1, T_1, T–1, kWhT1, TII, T-III, TR1, TOD, TOU, TARIFF, RATE 1, PEAK, OFF PEAK, Z01, 1.8.1), an export register (2.8.x), a past bill (01 BILL, 01 B, a bare 01, HIST), maximum demand (MD, MDkW, MAX DEMAND) or a prepaid balance (INR, ₹) means the wrong screen.
+   - It must be the cumulative screen. A label marking a tariff total (T1, T01, T.1, T_1, T–1, kWhT1, TII, T-III, TR1, TOD, TOU, TARIFF, RATE 1, PEAK, OFF PEAK, Z01, 1.8.1), an export register (2.8.x), a past bill (01 BILL, 01 B, a bare 01, HIST), a history or billing register (H alone or with a number, and B with a number: H, H1, H-1, H01, B1, B 1, B01, up to 12; not the h of kWh or kW h, and not the R Y B phase indicator), maximum demand (MD, MDkW, MAX DEMAND) or a prepaid balance (INR, ₹) means the wrong screen.
    - On a non-energy screen (voltage, Hz, maximum demand, date), `meterReading` keeps the decimal point shown, not the meter type's kWh format.
    - Every digit must be legible, the digit count certain, and the digit list and the display text must agree.
    - The confidence must be at least 0.90.

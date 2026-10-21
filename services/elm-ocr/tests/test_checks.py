@@ -115,12 +115,20 @@ def test_unit_must_be_a_visible_energy_unit():
 def test_label_of_a_non_total_screen_overrides_the_model():
     # the model said READ on the cumulative screen, but the LCD label it copied says otherwise
     for label in ("T2 kVAh", "t1 kVAh", "01 Bill", "BILL 02 kWh", "TOD 3", "Zone 2 kWh", "1.8.1", "MD kW",
-                  "LTR INR", "Rs", "BAL", "Hist 1", "PREV kWh"):
+                  "LTR INR", "Rs", "BAL", "Hist 1", "PREV kWh",
+                  # history register: a standalone H, or H with a number (not the h of the unit)
+                  "H", "H kWh", "kWh H", "kWh-H", "H1", "H 1", "H-1", "H01", "H12", "H1 kWh", "kWh H1",
+                  # billing register: B with a number
+                  "B1", "B 1", "B-1", "B01", "B12", "B1 kWh", "kWh B1"):
         a = answer("0019712.7")
         a["screen_label"] = label
         o = check(a)
         assert o.reason == "WRONG_SCREEN" and o.outcome == RETAKE, label
-    for label in ("CUM kWh", "kWh", "kVAh", "Cum. kVAh", "1.8.0", "TOTAL kWh", "IMPORT kWh", None, ""):
+    for label in ("CUM kWh", "kWh", "kVAh", "Cum. kVAh", "1.8.0", "TOTAL kWh", "IMPORT kWh", None, "",
+                  # the h of the unit, however the LCD spaces it, is not an H label
+                  "kW h", "KW H", "kW  h", "kW·h", "kW.h", "kW-h", "kVA h", "KVA H",
+                  # a B without a number is the phase indicator (R Y B), shown on every screen
+                  "R Y B kWh", "RYB kWh", "R B kWh", "B kWh", "B"):
         a = answer("0019712.7")
         a["screen_label"] = label
         assert check(a).ok, label

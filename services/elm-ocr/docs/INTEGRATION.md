@@ -91,7 +91,7 @@ Two things to watch:
 | `status` | `action` | What it means | What to do |
 |---|---|---|---|
 | `SUCCESS` | `ACCEPT` | The reading passed every check. | Use `meterReading`. |
-| `UNCLEAR` | `RETAKE` | Wrong photo: not the total screen (e.g. a tariff T1/T2 or bill screen), no unit visible, or the wrong unit. | Ask for a new photo and show `retakeHint` to the person taking it. `meterReading` holds the model's best reading, for information only; when the model saw no digits at all it holds a short sentence instead. |
+| `UNCLEAR` | `RETAKE` | Wrong photo: not the total screen (e.g. a tariff T1/T2, bill, history H/H1 or billing B1 screen), no unit visible, or the wrong unit. | Ask for a new photo and show `retakeHint` to the person taking it. `meterReading` holds the model's best reading, for information only; when the model saw no digits at all it holds a short sentence instead. |
 | `NOMETER` | `RETAKE` | No meter display is visible. | Ask for a new photo. `meterReading` holds a short explanation, not a number. |
 | `NEEDS_REVIEW` | `REVIEW` | The photo was hard to read (glare, an unclear or possibly missing digit, low confidence), or the reading failed a consistency check: wrong digit count, uncertain decimal point, lower than the previous reading, or an implausible jump. | A person checks `meterReading` against the photo, starting with the digits in `uncertainDigits` (if it is empty, check every digit), then confirms or corrects it through `/feedback`. A `?` in `meterReading` is a digit the model could not guess, and when the model could not read a single digit `meterReading` holds a short sentence: in both cases send the correct reading as `actual`. |
 
