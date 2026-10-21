@@ -1,4 +1,5 @@
-"""API models. Same envelope and field names as FlowVision (src/models/models.py), extended for the meter reader."""
+"""API models. Same envelope and field names as FlowVision's BFM service (services/bfm-ocr/src/models/models.py),
+extended for the meter reader."""
 import math
 from datetime import datetime
 from enum import StrEnum

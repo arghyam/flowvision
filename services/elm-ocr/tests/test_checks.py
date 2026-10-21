@@ -119,7 +119,9 @@ def test_label_of_a_non_total_screen_overrides_the_model():
                   # history register: a standalone H, or H with a number (not the h of the unit)
                   "H", "H kWh", "kWh H", "kWh-H", "H1", "H 1", "H-1", "H01", "H12", "H1 kWh", "kWh H1",
                   # billing register: B with a number
-                  "B1", "B 1", "B-1", "B01", "B12", "B1 kWh", "kWh B1"):
+                  "B1", "B 1", "B-1", "B01", "B12", "B1 kWh", "kWh B1",
+                  # export register: energy sent to the grid, not consumption
+                  "EXPORT kWh", "EXP kWh", "Exp. kWh", "kWh EXP", "kWhEXP", "EXPORTED kWh", "EXP"):
         a = answer("0019712.7")
         a["screen_label"] = label
         o = check(a)
@@ -128,7 +130,9 @@ def test_label_of_a_non_total_screen_overrides_the_model():
                   # the h of the unit, however the LCD spaces it, is not an H label
                   "kW h", "KW H", "kW  h", "kW·h", "kW.h", "kW-h", "kVA h", "KVA H",
                   # a B without a number is the phase indicator (R Y B), shown on every screen
-                  "R Y B kWh", "RYB kWh", "R B kWh", "B kWh", "B"):
+                  "R Y B kWh", "RYB kWh", "R B kWh", "B kWh", "B",
+                  # net and import totals are consumption readings
+                  "NET kWh", "Net kWh", "kWh NET", "IMP kWh", "IMPORT kWh"):
         a = answer("0019712.7")
         a["screen_label"] = label
         assert check(a).ok, label

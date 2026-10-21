@@ -13,7 +13,7 @@ from sqlalchemy.engine import make_url
 from service.vision.settings import ReaderSettings
 
 _MISSING = object()
-# meter_reader_service/ (in Docker: /app). Relative data and log paths are resolved from here, not from the
+# services/elm-ocr/ (in Docker: /app). Relative data and log paths are resolved from here, not from the
 # directory the service happens to be started in.
 SERVICE_ROOT = Path(__file__).resolve().parents[2]
 

@@ -107,7 +107,8 @@ class MeterReader:
         captured_at: when the photo was taken; defaults to now. Naive datetimes are treated as UTC.
         previous: a checks.Previous to compare against; defaults to the store's last trusted reading.
         deadline: time.monotonic() value by which the model must have answered (None: no overall limit).
-        Raises images.ImageError for a bad image and openai_client.ModelError if the model call fails.
+        Raises images.ImageError for a bad image and ModelError (defined in openai_client, raised by either model
+        client) if the model call fails.
         """
         t0 = time.time()
         s = self.settings

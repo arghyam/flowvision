@@ -19,7 +19,8 @@ from service.vision import MeterReader, ReaderSettings  # noqa: E402
 def answer(display="0019712.7", *, status="READ", screen="cumulative_energy", unit="kWh", conf=0.98,
            make="HPL", model_code="PPSM 01", faceplate=(), illegible=(), count_certain=True, dot_visible=None,
            best_guess=None, decimal_guess=None):
-    """A model answer in the prompt's schema, built from the display text (chars in `illegible` are marked unclear)."""
+    """A model answer in the prompt's schema, built from the display text (the 0-based positions in `illegible` are
+    marked illegible)."""
     chars = list(display or "")
     return {
         "screen_type": screen, "unit": unit,
@@ -33,7 +34,7 @@ def answer(display="0019712.7", *, status="READ", screen="cumulative_energy", un
 
 
 class FakeClient:
-    """Returns scripted answers in order (cycling), like OpenAIVisionClient.read."""
+    """Returns scripted answers in order (cycling), like the model clients' read() (OpenAI or Claude)."""
 
     def __init__(self, *answers):
         self.answers = list(answers)

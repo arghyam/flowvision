@@ -2,7 +2,7 @@
 Gunicorn settings for production (Docker image and systemd unit): gunicorn -c gunicorn.conf.py routes:app
 
 The timeouts fit an AWS Application Load Balancer with its idle timeout set to 120 s (see docs/DEPLOY_AWS.md):
-- a reading takes about 20 s and never more than the request deadline (METER_REQUEST_DEADLINE, else
+- a reading takes 10-30 s with GPT-6 Sol (4-12 s with Claude) and never more than the request deadline (METER_REQUEST_DEADLINE, else
   limits.request_deadline_seconds in the service's config.yaml, 100 s by default);
 - keep-alive is longer than the load balancer's idle timeout, so the load balancer, not gunicorn, closes idle
   connections (otherwise it can reuse a connection gunicorn just closed, and the caller gets a 502);
