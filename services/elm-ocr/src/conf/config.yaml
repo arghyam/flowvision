@@ -60,7 +60,8 @@ openai:
 
 # provider "claude", through Anthropic's API (same prompt and answer format as OpenAI). The API key is read only from
 # the ANTHROPIC_API_KEY env var. Overrides: METER_MODEL, METER_REASONING_EFFORT (the effort below),
-# METER_REQUEST_TIMEOUT, METER_CLAUDE_REFUSAL_FALLBACK, ANTHROPIC_BASE_URL, ANTHROPIC_WORKSPACE_ID.
+# METER_REQUEST_TIMEOUT, ANTHROPIC_BASE_URL, ANTHROPIC_WORKSPACE_ID. Only this model reads the photos: if it declines
+# one (rare), the reading fails with ERROR_04; no other model is tried.
 claude:
   model: "claude-sonnet-5-5"
   effort: "high"               # low | medium | high | xhigh | max: how much Claude thinks (thinking bills as output)
@@ -68,8 +69,6 @@ claude:
   workspace_id: null           # only for a key not scoped to a workspace (sk-ant-usr...): the workspace to use (wrkspc_...)
   timeout_seconds: 90          # longest wait for one answer (also capped by the request deadline)
   max_attempts: 2              # 1 retry, only for errors Anthropic did not bill (429, 5xx, connection refused)
-  refusal_fallback: true       # if Claude declines a photo (very unlikely), Anthropic re-runs it on another Claude model
-                               # in the same call; the reading's `model` names the model that answered
 
 # Checks. Overrides: METER_READS, METER_MIN_CONFIDENCE, METER_CLEAR_READ_CONFIDENCE, METER_MAX_DAILY_INCREASE,
 # METER_TYPES_FILE.

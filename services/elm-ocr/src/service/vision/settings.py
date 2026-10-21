@@ -17,7 +17,6 @@ class ReaderSettings:
     anthropic_api_key: str = ""                 # needed only when provider is "claude"
     anthropic_base_url: str = "https://api.anthropic.com"
     anthropic_workspace_id: str = ""            # for a key not scoped to a workspace (sk-ant-usr...): the one to use
-    claude_refusal_fallback: bool = True        # Claude declines a photo (rare): Anthropic re-runs it on another model
     request_timeout: float = 90.0               # longest wait for one model answer (also capped by the deadline)
     max_attempts: int = 2                       # model calls per read: 1 retry, only for errors that were not billed
     max_image_bytes: int = 20 * 1024 * 1024

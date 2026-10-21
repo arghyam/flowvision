@@ -5,12 +5,14 @@ checks do not depend on which model answered:
 - read() returns {"answer": dict, "usage": {"prompt_tokens", "completion_tokens"}, "model": str, "seconds": float}
   and raises ModelError (retryable / alert / usage / maybe_billed) when the call fails;
 - the same prompt and answer schema (prompt.py); Claude's structured outputs hold the answer to the schema;
+- only the configured model reads the photo: no fallback to another model;
 - one retry at most, only for errors Anthropic did not bill (rate limit, overloaded, server error, a connection that
   never opened), and never after a timeout or a dropped connection, which may be billed. The SDK's own retries are off.
 """
 import base64
 import io
 import json
+import logging
 import random
 import time
 
@@ -23,8 +25,11 @@ from .prompt import PROMPT, SCHEMA
 
 RETRY_STATUS = (429, 500, 502, 503, 529)            # not billed: retried once when the deadline allows
 MAX_IMAGE_BASE64 = 5 * 1024 * 1024                  # Anthropic's limit per image, as sent (base64)
-# On a decline, Anthropic re-runs the request on another Claude model within the same call (Claude API only)
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
+CONNECT_TIMEOUT = 5.0                               # a dead network fails fast, while a retry still fits the deadline
+
+# At DEBUG level the SDK logs each request's options, which include the whole photo (base64): never let it.
+for _name in ("anthropic", "httpx2", "httpcore2"):
+    logging.getLogger(_name).setLevel(logging.INFO)
 
 
 def claude_schema(schema):
@@ -103,11 +108,12 @@ class ClaudeVisionClient:
                 {"type": "text", "text": PROMPT},
             ]}],
         }
-        if s.claude_refusal_fallback:
-            params.update(betas=[FALLBACK_BETA], fallbacks="default")
 
         t0 = time.time()
         message = self._send(params, deadline)
+        if not isinstance(message, anthropic.types.Message):
+            # HTTP 200 whose body is not a message (e.g. plain text from a proxy): answered, possibly billed
+            raise ModelError("Anthropic returned an unreadable response", retryable=True, maybe_billed=True)
         usage = _usage(message.usage)                 # billed from here on, even if the answer is unusable
         if message.stop_reason == "refusal":
             details = getattr(message, "stop_details", None)
@@ -131,7 +137,6 @@ class ClaudeVisionClient:
         return self.settings.request_timeout if deadline is None else deadline - time.monotonic()
 
     def _send(self, params, deadline):
-        create = self.client.beta.messages.create if "fallbacks" in params else self.client.messages.create
         last = None
         for attempt in range(self.attempts):
             remaining = self._remaining(deadline)
@@ -140,7 +145,12 @@ class ClaudeVisionClient:
             timeout = min(self.settings.request_timeout, remaining)
             wait = None
             try:
-                return create(**params, timeout=timeout)
+                return self.client.messages.create(
+                    **params, timeout=anthropic.Timeout(timeout, connect=min(CONNECT_TIMEOUT, timeout)))
+            except ValueError as e:
+                # HTTP 200 whose body is cut off or not valid JSON: answered, possibly billed, so not sent again
+                raise ModelError("Anthropic returned an unreadable response", retryable=True,
+                                 maybe_billed=True) from e
             except anthropic.APITimeoutError as e:
                 if not isinstance(e.__cause__, httpx2.ConnectTimeout):
                     # The request was sent: Anthropic may still finish and bill it, so it is not sent again here.

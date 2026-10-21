@@ -6,6 +6,7 @@ errors are handled, with no network and no cost.
 import base64
 import io
 import json
+import logging
 import os
 import time
 import uuid
@@ -21,7 +22,8 @@ from conf.config import load_settings
 from conftest import answer
 from service.vision import ACCEPTED, MeterReader, ModelError, ReaderSettings
 from service.vision import claude_client
-from service.vision.claude_client import FALLBACK_BETA, MAX_IMAGE_BASE64, ClaudeVisionClient, claude_schema, fit_image
+from service.vision.claude_client import (CONNECT_TIMEOUT, MAX_IMAGE_BASE64, ClaudeVisionClient, claude_schema,
+                                          fit_image)
 from service.vision.images import ImageError
 from service.vision.prompt import PROMPT, SCHEMA
 
@@ -51,7 +53,8 @@ def error(status, kind, headers=None):
 
 class FakeAnthropic:
     """Answers each request with the next scripted item (the last one repeats): a response body (HTTP 200), a
-    (status, body, headers) tuple, or an httpx2 exception class, raised as the network failure it names."""
+    (status, body, headers) tuple, a ready httpx2.Response, or an httpx2 exception class, raised as the network
+    failure it names."""
 
     def __init__(self, *script):
         self.script, self.requests = list(script), []
@@ -61,6 +64,8 @@ class FakeAnthropic:
         item = self.script[min(len(self.requests), len(self.script)) - 1]
         if isinstance(item, type) and issubclass(item, Exception):
             raise item("simulated network failure", request=request)
+        if isinstance(item, httpx2.Response):
+            return item
         status, body, headers = item if isinstance(item, tuple) else (200, item, {})
         return httpx2.Response(status, json=body, headers=headers)
 
@@ -85,10 +90,10 @@ def test_request_uses_the_same_prompt_and_answer_schema(jpeg_bytes):
     assert out["usage"] == {"prompt_tokens": 5000, "completion_tokens": 1200}
     req = fake.requests[0]
     assert req.url.path == "/v1/messages" and req.headers["x-api-key"] == "sk-ant-test-not-real"
-    assert FALLBACK_BETA in req.headers.get("anthropic-beta", "")
+    assert "anthropic-beta" not in req.headers and "beta" not in req.url.query.decode()     # no beta features
     body = fake.body()
     assert body["model"] == "claude-sonnet-5-5" and body["max_tokens"] == 16000
-    assert body["thinking"] == {"type": "adaptive"} and body["fallbacks"] == "default"
+    assert body["thinking"] == {"type": "adaptive"} and "fallbacks" not in body              # this model only
     assert body["output_config"] == {"effort": "high", "format": {"type": "json_schema", "schema": claude_schema(SCHEMA)}}
     image, prompt = body["messages"][0]["content"]
     assert image["source"] == {"type": "base64", "media_type": "image/jpeg", "data": base64.b64encode(jpeg_bytes).decode()}
@@ -103,12 +108,39 @@ def test_workspace_header_only_when_a_workspace_is_set(jpeg_bytes):
     assert fake.requests[1].headers["anthropic-workspace-id"] == "wrkspc_test"
 
 
-def test_refusal_fallback_and_effort_can_be_switched_off(jpeg_bytes):
+def test_effort_can_be_left_to_the_model_default(jpeg_bytes):
     fake = FakeAnthropic(message(json.dumps(answer())))
-    make(fake, claude_refusal_fallback=False, reasoning_effort=None).read(jpeg_bytes)
-    body = fake.body()
-    assert "fallbacks" not in body and FALLBACK_BETA not in fake.requests[0].headers.get("anthropic-beta", "")
-    assert "effort" not in body["output_config"]                   # the model's default effort
+    make(fake, reasoning_effort=None).read(jpeg_bytes)
+    assert "effort" not in fake.body()["output_config"]            # the model's default effort
+
+
+@pytest.mark.parametrize("response", [
+    httpx2.Response(200, content=b'{"id": "msg_test", "type": "message", "content": [',
+                    headers={"content-type": "application/json"}),        # cut off
+    httpx2.Response(200, content=b"<html>proxy error</html>", headers={"content-type": "text/html"}),
+    httpx2.Response(200, json=[1, 2]),
+])
+def test_unreadable_answer_is_a_model_error_and_not_resent(jpeg_bytes, response):
+    fake = FakeAnthropic(response)
+    with pytest.raises(ModelError, match="unreadable response") as e:
+        make(fake).read(jpeg_bytes)
+    assert e.value.retryable and e.value.maybe_billed and len(fake.requests) == 1
+
+
+def test_timeouts_fail_fast_on_connect_and_stay_within_the_deadline(jpeg_bytes):
+    fake = FakeAnthropic(message(json.dumps(answer())))
+    make(fake).read(jpeg_bytes)
+    limits = fake.requests[0].extensions["timeout"]
+    assert limits["connect"] == CONNECT_TIMEOUT and limits["read"] == 90.0
+    make(fake).read(jpeg_bytes, deadline=time.monotonic() + 30)
+    assert max(fake.requests[1].extensions["timeout"].values()) <= 30
+
+
+def test_debug_logging_never_writes_the_photo(jpeg_bytes, caplog):
+    caplog.set_level(logging.DEBUG)
+    make(FakeAnthropic(message(json.dumps(answer())))).read(jpeg_bytes)
+    photo = base64.b64encode(jpeg_bytes).decode()
+    assert photo[:200] not in caplog.text
 
 
 def test_schema_for_claude_writes_type_lists_as_anyof():
@@ -216,7 +248,7 @@ def test_a_photo_over_anthropics_limit_is_sent_as_jpeg(jpeg_bytes):
 
 @pytest.fixture
 def no_keys(monkeypatch):
-    for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"):
+    for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_WORKSPACE_ID", "OPENAI_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -231,15 +263,13 @@ def test_load_settings_for_claude(config, monkeypatch, no_keys):
     s = load_settings(config)                                    # no OpenAI key needed
     assert (s.provider, s.model, s.reasoning_effort, s.anthropic_api_key) == ("claude", "claude-sonnet-5-5", "high", "a")
     assert (s.price_input_per_m, s.price_output_per_m, s.request_timeout, s.max_attempts) == (2.0, 10.0, 90.0, 2)
-    assert s.anthropic_base_url == "https://api.anthropic.com" and s.claude_refusal_fallback is True
+    assert s.anthropic_base_url == "https://api.anthropic.com"
     assert s.anthropic_workspace_id == ""
     monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_x")
     assert load_settings(config).anthropic_workspace_id == "wrkspc_x"
     monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID")
-    monkeypatch.setenv("METER_CLAUDE_REFUSAL_FALLBACK", "false")
     monkeypatch.setenv("METER_REASONING_EFFORT", "medium")
-    s = load_settings(config)
-    assert s.claude_refusal_fallback is False and s.reasoning_effort == "medium"
+    assert load_settings(config).reasoning_effort == "medium"
     for name, value in (("METER_REASONING_EFFORT", "extreme"), ("METER_MODEL", "gpt-6-sol"), ("METER_PROVIDER", "gemini")):
         monkeypatch.setenv(name, value)
         with pytest.raises(RuntimeError):
@@ -248,7 +278,7 @@ def test_load_settings_for_claude(config, monkeypatch, no_keys):
     monkeypatch.setenv("METER_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     monkeypatch.setenv("METER_MODEL", "claude-sonnet-5-5")        # a Claude model for the OpenAI provider
-    with pytest.raises(RuntimeError, match="not a openai model"):
+    with pytest.raises(RuntimeError, match="not an openai model"):
         load_settings(config)
 
 

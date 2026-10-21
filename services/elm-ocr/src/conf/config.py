@@ -81,7 +81,7 @@ def load_settings(config: Config) -> ReaderSettings:
     section = "claude" if claude else "openai"
     model = _env("METER_MODEL", config.find(f"{section}.model", "claude-sonnet-5-5" if claude else "gpt-6-sol"))
     if str(model).lower().startswith("claude") != claude:      # e.g. METER_MODEL=gpt-6-sol left set after switching
-        raise RuntimeError(f"model {model!r} is not a {provider} model: set METER_MODEL (or {section}.model in "
+        raise RuntimeError(f"model {model!r} is not {'an' if provider == 'openai' else 'a'} {provider} model: set METER_MODEL (or {section}.model in "
                            f"config.yaml) to match METER_PROVIDER={provider}")
     effort = _env("METER_REASONING_EFFORT",
                   config.find("claude.effort" if claude else "openai.reasoning_effort", "high"))
@@ -105,8 +105,6 @@ def load_settings(config: Config) -> ReaderSettings:
         anthropic_base_url=_env("ANTHROPIC_BASE_URL",
                                 config.find("claude.base_url", "https://api.anthropic.com")).rstrip("/"),
         anthropic_workspace_id=str(_env("ANTHROPIC_WORKSPACE_ID", config.find("claude.workspace_id", ""))).strip(),
-        claude_refusal_fallback=_bool(_env("METER_CLAUDE_REFUSAL_FALLBACK",
-                                           config.find("claude.refusal_fallback", True))),
         request_timeout=_env("METER_REQUEST_TIMEOUT", float(config.find(f"{section}.timeout_seconds", 90)), float),
         # METER_OPENAI_ATTEMPTS keeps its meaning (OpenAI only); Claude's comes from claude.max_attempts
         max_attempts=max(1, int(config.find("claude.max_attempts", 2)) if claude

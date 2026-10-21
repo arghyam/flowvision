@@ -4,7 +4,7 @@ This guide covers the AWS pieces the service needs, two ways to run it (containe
 
 ```
 JalSoochak central system ──HTTPS──> Application Load Balancer ──HTTP:8000──> meter reader (ECS tasks or EC2)
-                                                                                    │  ├─> OpenAI API (HTTPS, egress)
+                                                                                    │  ├─> OpenAI or Anthropic API (HTTPS, egress)
                                                                                     │  └─> JalSoochak image endpoint (photo download)
                                                                                     ├─> RDS PostgreSQL (readings)
                                                                                     └─> S3 (photos)
@@ -30,7 +30,8 @@ Set these as ECS task environment variables and secrets, or in `/etc/meter-reade
 |---|---|
 | `METER_ENV` | `production` |
 | `OPENAI_API_KEY` | secret |
-| `METER_PROVIDER` | `openai` (default, GPT-6 Sol) or `claude` (Claude Sonnet 5.5; then set `ANTHROPIC_API_KEY`, a secret, instead of `OPENAI_API_KEY`) |
+| `METER_PROVIDER` | `openai` (default, GPT-6 Sol) or `claude` (Claude Sonnet 5.5; then set `ANTHROPIC_API_KEY`, a secret, instead of `OPENAI_API_KEY`). Only that model reads the photos; no other model is tried. When switching, remove `METER_MODEL` and `METER_REASONING_EFFORT` or set Claude values, or the service refuses to start. Sending consumer photos to Anthropic needs the data-sharing approval first (README, Privacy). |
+| `ANTHROPIC_WORKSPACE_ID` | Claude only, and only for an API key that is not tied to one workspace: the workspace to use (`wrkspc_...`). |
 | `METER_SERVICE_API_KEY` | secret. Comma-separate two keys while rotating. |
 | `METER_DB_URL` | secret: `postgresql+psycopg2://USER:PASSWORD@RDS-ENDPOINT:5432/meter_reader?sslmode=require` |
 | `METER_IMAGE_DIR` | `s3://BUCKET/meter-photos` |
@@ -120,11 +121,11 @@ The last command must show:
 
 Useful CloudWatch alarms:
 - **ALB `HTTPCode_Target_5XX_Count`** above a few per 5 minutes. The service returns real 5xx statuses for model outages (502), busy (503) and internal errors (500).
-- **ALB `TargetResponseTime`** p95 above 60 s: OpenAI is slow, or photos are queueing.
+- **ALB `TargetResponseTime`** p95 above 60 s: the model provider is slow, or photos are queueing.
 - **Unhealthy host count** above 0.
 - **A log metric filter with the pattern `{ $.level = "CRITICAL" }`,** alarming on 1 or more. It fires for:
   - the daily budget reached;
-  - the OpenAI account out of credit (`insufficient_quota`) or an OpenAI key rejected;
+  - the OpenAI account out of credit (`insufficient_quota`) or an OpenAI key rejected; with `METER_PROVIDER=claude`, the Anthropic account out of credit (HTTP 402), a rejected Anthropic key (401/403) or an unknown model (404);
   - results that could not be stored;
   - a photo that could not be saved (e.g. S3 refused the upload; the reading is still returned);
   - a gunicorn worker timeout (gunicorn's own lines are JSON in production too). (gunicorn's own lines are JSON in production too).
@@ -142,8 +143,8 @@ None of these limits stops the service by itself; each only acts in the situatio
 | Daily model spend | $25 a day (about 1,080 photos) | The day's model spend, plus the reservations of readings in flight, leaves no room for one more $0.05 reservation | Model calls stop until midnight India time (429 `ERROR_11`), CRITICAL log. If only the reservations of other readings in progress are in the way, the 429 is retryable (`Retry-After: 60`); a retried id whose earlier attempt was billed is told the budget is used up when no other reading is in progress | `METER_DAILY_BUDGET_USD`, `limits.reserve_per_call_usd` (0.05) in config.yaml |
 | Same photo again | 7 days | The identical photo file of the same consumer arrives again with a new id | The original read's result is returned; no model call, no cost. While it is still being read, 409 `ERROR_12` (retryable). A photo a person corrected goes to review (`CORRECTED_BEFORE`), even with the setting at 0 | `METER_DUPLICATE_PHOTO_HOURS` (0 = no reuse and no in-flight check) |
 | Readings at once | 8 per worker | More readings than that at the same moment | Up to 8 more wait up to 30 s for a slot, then get 503 `ERROR_10` (retryable); beyond that, 503 at once. Sized so a 1 vCPU, 4 GB task with 2 workers is not killed for memory by a burst | `METER_MAX_CONCURRENT_READS` (raise only with more task memory), `METER_BUSY_WAIT_SECONDS`, `WORKERS` |
-| Time per reading | 100 s | OpenAI is very slow (a normal reading takes ~20 s) | That reading fails with 502 `ERROR_04`, retryable | `METER_REQUEST_DEADLINE` |
-| OpenAI retries | 1 (2 attempts in total) | OpenAI says busy (429), returns 500/502/503, or cannot be reached | One more try if time allows; never after a timeout or a dropped connection, which may already be billed | `METER_OPENAI_ATTEMPTS` (total attempts; 1 = no retry) |
+| Time per reading | 100 s | The model provider is very slow (a normal reading takes ~20 s with OpenAI, ~5 s with Claude) | That reading fails with 502 `ERROR_04`, retryable | `METER_REQUEST_DEADLINE` |
+| Model retries | 1 (2 attempts in total) | The provider says busy (429, or 529 for Anthropic), returns a 5xx error, or cannot be reached (Claude gives up connecting after 5 s) | One more try if time allows; never after a timeout or a dropped connection, which may already be billed | OpenAI: `METER_OPENAI_ATTEMPTS` (total attempts; 1 = no retry). Claude: `claude.max_attempts` in config.yaml (no environment override) |
 | Request size | 30 MB | A bigger request body | 413 `ERROR_003` (a body that declares its size is read, up to 60 MB, and discarded first, so the client gets the error, not a connection reset; a streamed body without `Content-Length` is cut off at 30 MB) | `METER_MAX_BODY_BYTES` |
 | Photo bodies held at once | 150 MB per worker, by `Content-Length` (a body without one counts as 30 MB) | A burst of large photos (normal ~5 MB phone photos never reach it) | One more reading request gets 503 `ERROR_10` (retryable, `Retry-After: 10`); its body is read and thrown away unparsed (so the client gets the 503, not a connection reset), so it is not stored and gets a new response id. A body that stalls for 60 s between two parts gets a retryable 503 (send it again) and frees its place | `METER_MAX_INFLIGHT_BODY_BYTES` |
 | Image size | 20 MB; 250 MP (single-scan grey or colour JPEG) / 16 MP (PNG, WebP, and progressive, multi-scan or CMYK JPEG); one full-size decode at a time per worker | A bigger photo | 400 or 413 | `file_size_limit`, `reader.max_jpeg_pixels`, `reader.max_image_pixels` in config.yaml |
@@ -161,13 +162,13 @@ A lost database connection fails within about 15–25 s as 503 `ERROR_13` (retry
 Throughput:
 
 - One reading holds a read slot for about 20 s. One task with 2 workers × 8 slots handles about 0.8 photos per second (about 69,000 a day) in steady state; a short burst waits for a slot, and a sustained overload gets `503 ERROR_10` (retryable) instead of queueing without limit. Add tasks for more; raise `METER_MAX_CONCURRENT_READS` only with more task memory.
-- OpenAI's own rate limits for the account usually bind first. Check the account's tier.
+- The provider's own rate limits for the account usually bind first. Check the OpenAI account's tier, or the Anthropic organization's rate limits with `METER_PROVIDER=claude`.
 - DB connections: each worker opens up to 15 connections (`METER_DB_POOL_SIZE` 5 + `METER_DB_MAX_OVERFLOW` 10). Keep tasks × workers × 15 under the RDS connection limit.
 
 ## 7. Operations
 
 - **Rotate the service API key:** set `METER_SERVICE_API_KEY=new,old`, deploy, let JalSoochak switch to `new`, then set `new` alone.
-- **Rotate the OpenAI key:** update the secret and redeploy/restart. The key that was pasted in chat during development must be rotated before the pilot.
+- **Rotate the OpenAI or Anthropic key:** update the secret and redeploy/restart. The key that was pasted in chat during development must be rotated before the pilot.
 - **Rotate the database password:** update `METER_DB_URL` in Secrets Manager and redeploy/restart.
 - **Data retention:**
   - photos expire through the S3 lifecycle rule;
@@ -181,7 +182,7 @@ Throughput:
 - [ ] RDS, the S3 bucket (public access blocked, lifecycle rule), secrets, IAM role and security groups are created.
 - [ ] ALB is on HTTPS, with idle timeout 120 s and health check `/health`.
 - [ ] `METER_ENV=production` and all section 2 variables are set; the $25 daily cap fits the expected volume (raise `METER_DAILY_BUDGET_USD` if not).
-- [ ] A monthly budget and alerts are set on the OpenAI account.
+- [ ] A monthly budget and alerts are set on the OpenAI account, or on the Anthropic workspace or organization with `METER_PROVIDER=claude`.
 - [ ] The OpenAI key is rotated; the old one pasted in chat is revoked.
 - [ ] The smoke test ([section 4](#4-after-each-deploy-smoke-test)) passes against the deployed URL.
 - [ ] The CloudWatch alarms from [section 5](#5-monitoring) exist and notify someone.
