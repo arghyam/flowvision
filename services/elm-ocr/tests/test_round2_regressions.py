@@ -191,11 +191,16 @@ def test_real_total_screen_labels_still_pass(app_with, jpeg_bytes, label, unit):
     assert post(c, imageBase64=b64(jpeg_bytes)).json()["result"]["status"] == "SUCCESS"
 
 
+# One request per test: on PostgreSQL (CI) the apps of one test share a database, so a second request with the same
+# photo would get the first one's result back (duplicate photo).
 def test_genus_total_screen_with_its_tariff_zone_lit_passes(app_with, jpeg_bytes):
-    # the Genus SAKSHAM-345 lights the zone in force (T1) on its total screen; other meters keep T1 as a tariff label
+    # the Genus SAKSHAM-345 lights the zone in force (T1) on its total screen
     genus = {**answer("00334315", make="Genus", model_code="SAKSHAM-345"), "screen_label": "L1 L2 L3 T1 CUM kWh"}
     r = post(app_with(genus), imageBase64=b64(jpeg_bytes)).json()["result"]
     assert r["status"] == "SUCCESS" and r["data"]["meterReading"] == "0033431.5"
+
+
+def test_t1_next_to_cum_is_still_a_tariff_label_on_other_meters(app_with, jpeg_bytes):
     hpl = {**answer("00197127"), "screen_label": "T1 CUM kWh"}
     r = post(app_with(hpl), imageBase64=b64(jpeg_bytes)).json()["result"]
     assert r["status"] == "UNCLEAR" and r["data"]["reasons"][0]["code"] == "WRONG_SCREEN"

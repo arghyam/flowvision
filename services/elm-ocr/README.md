@@ -219,7 +219,7 @@ These are always on:
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q                               # 264 tests, fake model, no cost (3 run only on PostgreSQL)
+python -m pytest -q                               # 265 tests, fake model, no cost (3 run only on PostgreSQL)
 METER_TEST_DB_URL=postgresql+psycopg2://user@localhost:5432/meter_test METER_DB_NULL_POOL=true python -m pytest -q
 ```
 
@@ -287,7 +287,7 @@ To add one, see [Common tasks](#common-tasks).
 
 **GPT-6 Sol**, on hand-reviewed photos:
 - **100 trial photos.** Every ACCEPT was correct except one bill-history screen (labelled "1. bILL kW·h"), which the current prompt now declines as another screen. The returned reading was right on 36 of 51 readable photos, decimal point included; most misses were glare photos, with the wrong digit flagged in `uncertainDigits`. The rules were tuned on these same photos.
-- **268 fresh photos** (2026-10-02, $6.17). 20 of 21 ACCEPT readings were right (95.2%). The miss, PB_harrion-tapprian, was a clear-photo misread: 0016183.1 for 0016189.1, at confidence 0.98. The returned reading was right on 87 of 146 readable photos, and 17 Assam tariff or bill screens that the hand review counted as readings were rightly declined. About half of these photos had no readable total at all: 25% were unreadable even for a person, and 20% showed the wrong screen.
+- **268 fresh photos** (2026-10-02, $6.17). 20 of 21 ACCEPT readings were right (95.2%). The miss was a clear-photo misread: 0016183.1 for 0016189.1, at confidence 0.98. The returned reading was right on 87 of 146 readable photos, and 17 Assam tariff or bill screens that the hand review counted as readings were rightly declined. About half of these photos had no readable total at all: 25% were unreadable even for a person, and 20% showed the wrong screen.
 
 21 ACCEPT readings are too few to support the 95% target; about 60 with zero errors are needed. Since these GPT-6 Sol runs, hard-to-read photos go to review instead of retake and more screen labels are rejected (H, B1, export, zone, billing-period, month, daily and high-resolution screens); none of these changes adds an ACCEPT.
 
