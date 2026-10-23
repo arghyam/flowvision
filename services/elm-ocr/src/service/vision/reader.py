@@ -93,7 +93,8 @@ class MeterReader:
         if decimals is None and digits is None:
             return None
         from_consumer = own_decimals is not None or (chosen is not None and decimals is not None)
-        return MeterRule(decimals, digits, "consumer" if from_consumer else "registry", t.id if t else None)
+        return MeterRule(decimals, digits, "consumer" if from_consumer else "registry", t.id if t else None,
+                         tariff_indicator=bool(t and t.tariff_indicator))
 
     def _cost(self, usage):
         s = self.settings

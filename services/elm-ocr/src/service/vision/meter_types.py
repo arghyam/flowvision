@@ -6,6 +6,7 @@ brand alone: L&T/Schneider make both the ER300 (no decimal point) and the EM101+
 
 Only types confirmed on our own photos are listed. Add more in a JSON file (METER_TYPES_FILE), e.g.
     [{"id": "genus_xyz", "description": "...", "decimals": 1, "digits": 8, "patterns": ["\\\\bXYZ\\\\s*100\\\\b"]}]
+("tariff_indicator": true, optional, for a meter whose total screen also lights the tariff zone, as "T1 CUM kWh").
 A per-consumer setting (PUT /meters/{consumerId}, stored by service/api/metadata_service.py) always overrides these.
 """
 import json
@@ -21,6 +22,8 @@ class MeterType:
     digits: int | None          # total digits on the main row, leading zeros included; None if it varies
     patterns: tuple[str, ...]   # regexes, matched case-insensitively against make / model code / faceplate text
     evidence: str = ""
+    # The total (CUM) screen also lights the active tariff zone (T1, T2...): next to CUM it is not a tariff label.
+    tariff_indicator: bool = False
 
     def to_dict(self):
         d = asdict(self)
@@ -34,13 +37,19 @@ BUILTIN = (
               evidence="Trial photos: 0019712.7, 0055121.5, 0045924.8, 0045883.8"),
     MeterType("lt_er300", "L&T / Schneider ER300 static meter (APDCL, Assam), 8 digits, no decimal point",
               decimals=0, digits=8, patterns=(r"\bER\s*-?\s*300", r"\bWR\s*-?\s*300"),
-              evidence="Trial photos: 00018103, 00007696"),
+              evidence="Trial photos: 00018103, 00007696. Its manual: \"'T0 to T7' on the display indicates Time Zones, "
+                       "and should not be confused with the Tariff\", shown on every screen; the total is marked C, "
+                       "tariff-zone totals C0...C7 (ER300P user manual, appendix C)",
+              tariff_indicator=True),
     MeterType("lt_em101", "L&T / Schneider EM101+ single-phase meter (APDCL, Assam), one decimal digit",
               decimals=1, digits=None, patterns=(r"\bEM\s*-?\s*101",),
               evidence="Trial photos: 2344.7, 2330.5"),
     MeterType("genus_saksham345", "Genus SAKSHAM-345 (APDCL, Assam), 8 digits, one decimal digit",
               decimals=1, digits=8, patterns=(r"\bSAKSHAM\s*-?\s*34[5S]\b",),   # the model once read 345 as 34S
-              evidence="Hand-reviewed trial photos: 0032740.9, 0033486.0, 0000359.6; model code read on 6 photos (2026-09-30)"),
+              evidence="Hand-reviewed trial photos: 0032740.9, 0033486.0, 0000359.6; model code read on 6 photos (2026-09-30). "
+                       "Its total screen reads 'L1 L2 L3 T1 CUM kWh', with the T number of the zone in force: the same "
+                       "consumers' T1 CUM readings rise day by day, and T2 shows on the Hz screen (Claude run, 2026-10-21)",
+              tariff_indicator=True),
     # Added 2026-09-30 from the 100-photo run: model code read by GPT-6 Sol, format from the hand review.
     MeterType("hpl_ppem26", "HPL PPEM 26 (PSPCL, Punjab), 7 digits, one decimal digit", decimals=1, digits=7,
               patterns=(r"\bPPEM\s*-?\s*26\b",), evidence="Hand-reviewed trial photos: 3 readings in the 999999.9 format"),
@@ -66,7 +75,8 @@ class MeterTypeRegistry:
                 for item in json.load(f):
                     t = MeterType(id=item["id"], description=item.get("description", ""), decimals=int(item["decimals"]),
                                   digits=item.get("digits"), patterns=tuple(item["patterns"]),
-                                  evidence=item.get("evidence", ""))
+                                  evidence=item.get("evidence", ""),
+                                  tariff_indicator=bool(item.get("tariff_indicator", False)))
                     for p in t.patterns:
                         re.compile(p)
                     reg.types[t.id] = t

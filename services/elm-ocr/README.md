@@ -87,7 +87,7 @@ Other ways to run it:
 ```json
 [{"id": "genus_xyz", "description": "Genus XYZ-100, 8 digits, 1 decimal", "decimals": 1, "digits": 8, "patterns": ["\\bXYZ\\s*-?100\\b"]}]
 ```
-Patterns are matched against the model code the model copies from the meter body, never the brand alone. Use only formats confirmed on real photos. A single consumer's meter can also be set with `PUT /meters/{consumerId}`.
+Patterns are matched against the model code the model copies from the meter body, never the brand alone. Use only formats confirmed on real photos. Add `"tariff_indicator": true` only for a meter whose total screen also shows the tariff zone in force next to `CUM` (as `T1 CUM kWh`), as the manufacturer's manual or real photos show. A single consumer's meter can also be set with `PUT /meters/{consumerId}`.
 
 **Reject another screen label.** Labels that mark a screen other than the total are in `NOT_TOTAL_LABEL` in `src/service/vision/checks.py`. Add the pattern there and add examples to `test_label_of_a_non_total_screen_overrides_the_model` in `tests/test_checks.py`, including labels that must still pass (the unit's own `kW h`, the `R Y B` phase indicator).
 
@@ -124,9 +124,11 @@ Every response under the base paths uses FlowVision's envelope (`id`, `ts`, `res
    - gives a best guess for unclear digits and the decimal places.
 3. **Per-read checks** (`src/service/vision/checks.py`):
    - It must be the cumulative screen. These labels mean the wrong screen:
-     - a tariff total (T1, T01, T.1, T_1, T–1, kWhT1, TII, T-III, TR1, TOD, TOU, TARIFF, RATE 1, PEAK, OFF PEAK, Z01, 1.8.1);
-     - an export register (2.8.x, EXPORT, EXP); a NET or IMPORT total is accepted;
-     - a past bill (01 BILL, 01 B, a bare 01, HIST);
+     - a tariff or time-of-day zone total (T1, T01, T.1, T_1, T–1, kWhT1, TII, T-III, TR1, TOD, TOU, TARIFF, RATE 1, PEAK, OFF PEAK, Z01, E1...E8, L&T's C0...C7, OBIS 1.8.1 and 9.8.1). Exceptions: a sum of zones (`C (T1+T2) kWh`) is the total; and on a meter type with `tariff_indicator` (Genus SAKSHAM-345, L&T ER300), a T1...T8 next to `CUM` (or L&T's lone `C`) is the time zone in force, lit on every screen (`L1 L2 L3 T1 CUM kWh`), not a tariff label;
+     - an export or reverse register (2.8.x, 10.8.x, EXPORT, EXP, REV); a NET or IMPORT total (IMP, IP-Cu) is accepted;
+     - a past bill, billing period or month (01 BILL, 01 B, a bare 01, HIST, HIS, BP, BP 1, LAST, PREV, MON, MONTH, MTD, M1...M12, OBIS 1.8.0*01);
+     - daily or period consumption (DAY, TODAY, DAILY, CONS, CONSUMPTION, USAGE) and diesel-generator energy (DG);
+     - the high-resolution screen (HR, HI-RES, HIGH RES), which drops the leading digits;
      - a history or billing register: H alone or with a number, and B with a number (H, H1, H-1, H01, B1, B 1, B01, up to 12). The h of the unit (kWh, kW h) and the R Y B phase indicator, including a lone B, are not these labels;
      - maximum demand (MD, MDkW, MAX DEMAND);
      - a prepaid balance (INR, ₹).
@@ -134,6 +136,7 @@ Every response under the base paths uses FlowVision's envelope (`id`, `ts`, `res
    - Every digit must be legible, the digit count certain, and the digit list and the display text must agree.
    - The confidence must be at least 0.90.
    - The unit must be visible and be kWh or kVAh.
+   - The unit must agree with the LCD label the model copied: a kWh reading beside a label naming only kVAh (or kVArh), or the other way round, goes to review (`BAD_OUTPUT`). A label listing several units (a printed legend such as `kWh kVAh kVArh`) decides nothing.
    - Failing only the legibility or confidence checks sends the photo to review, with the model's reading. The wrong screen, or a missing or wrong unit on a clear read, means a retake.
 4. **Decimal point and digit count from the meter type** (`src/service/vision/meter_types.py`), never from the model's view of a tiny dot.
    - Each consumer setting wins.
@@ -165,7 +168,7 @@ All settings are in `src/conf/config.yaml` (or the file named by `CONFIG_PATH`),
 | `METER_MIN_CONFIDENCE`, `METER_CLEAR_READ_CONFIDENCE`, `METER_MAX_DAILY_INCREASE` | `0.90`, `0.95`, `300` | Check thresholds. |
 | `METER_MODEL`, `METER_REASONING_EFFORT` | `gpt-6-sol`, `high` (Claude: `claude-sonnet-5-5`, `high`) | The model and effort of the provider in use. |
 
-**Cost and speed.** GPT-6 Sol: about $0.023 and 10–30 s per photo, almost all of it the model thinking. Claude Sonnet 5.5 (same price per token, $2 / $10 per million): about $0.011–0.022 and 4–12 s per photo, measured on a handful of photos. Only GPT-6 Sol at `high` has been evaluated for accuracy on the hand-checked photos; evaluate Claude the same way before relying on it. Each response includes `costEstimateUsd`.
+**Cost and speed.** GPT-6 Sol: about $0.023 and 10–30 s per photo, almost all of it the model thinking. Claude Sonnet 5.5 (same price per token, $2 / $10 per million): a median of $0.014 and 4 s per photo (highest $0.022, slowest 15 s) over three runs of the 268 hand-checked photos. Both models have been evaluated on those photos; see [Accuracy so far](#accuracy-so-far). Each response includes `costEstimateUsd`.
 
 ## Storage
 
@@ -204,7 +207,7 @@ These are always on:
 |---|---|
 | **Safe retries** | The request `id` is an idempotency key. The same id returns the stored result without a second model call, and an id still being processed gets 409 (retry shortly). The same id for a different consumer or photo is refused (409 `ERROR_15`), and so is a photo first sent as base64 and then as a link under the same id: resend an id in the form first used. After a failed attempt, the same consumer may resend the id with a corrected photo; another consumer may not. |
 | **No double spend on the same photo** | The identical photo file of the same consumer, sent again with a new id within 7 days of its original read, gets that result without a model call (`METER_DUPLICATE_PHOTO_HOURS`; `0` turns off this reuse and the in-flight check below). While that photo is still being read under another id, the new request gets 409 `ERROR_12` (retryable), and its retry gets the result: a double submit pays once. The photo is read again if the consumer's meter settings really changed since (a `PUT /meters` with the same settings changes nothing). A photo whose reading a person marked wrong or corrected is never read or accepted again, whatever the setting: it comes back `NEEDS_REVIEW` (`CORRECTED_BEFORE`), at no cost. A confirmation (`accurate: true`, or an `actual` equal to the returned reading) is not a correction. |
-| **Time limit** | A reading takes 10–30 s with GPT-6 Sol (4–12 s with Claude) and at most `METER_REQUEST_DEADLINE` (100 s). The model call is retried at most once, and only for errors the provider did not bill. |
+| **Time limit** | A reading takes 10–30 s with GPT-6 Sol (about 4 s with Claude, at most about 15 s seen) and at most `METER_REQUEST_DEADLINE` (100 s). The model call is retried at most once, and only for errors the provider did not bill. |
 | **Load** | At most `METER_MAX_CONCURRENT_READS` (8) readings at once per worker (sized for a 4 GB task with 2 workers); as many more wait up to 30 s for a slot, and beyond that a request gets 503 (retryable) instead of an unbounded queue. Raise it only with more memory. |
 | **Cost** | A daily cap of **$25** (about 1,080 photos at GPT-6 Sol's cost; `METER_DAILY_BUDGET_USD`) stops model calls for the rest of the India-time day once reached (429). Before each model call the request reserves $0.05 on its own row (`limits.reserve_per_call_usd`; the costliest of 384 real calls was $0.043), under a lock that every worker and instance shares, so readings in flight count; a call is made only if its reservation still fits within the cap (a cap below $0.05 allows no calls). The reservation is then replaced by the real cost, so spend can end above the cap only if a call costs more than its reservation (none has so far). When only the reservations of other readings in progress are in the way, the 429 is retryable (`Retry-After: 60`). A retried id's own billed earlier attempt counts as spent, not as in progress, so with nothing else in progress it is told the budget is used up (not retryable). Failed calls that the provider may still bill are counted too, and a retried failed id keeps that cost. |
 | **Input** | Request bodies up to 30 MB, checked (with the API key) before the body is read, and at most 150 MB of photo request bodies held at once per worker (`METER_MAX_INFLIGHT_BODY_BYTES`, by `Content-Length`; one more gets 503, retryable). A body refused for its size (413) or for the photo body limit (503) is read and discarded first, so the client gets the error, not a connection reset; a body that stalls for 60 s gets a retryable 503 (send it again). Images up to 20 MB, and 250 megapixels (single-scan grey or colour JPEG) or 16 (PNG, WebP, and progressive, multi-scan or CMYK JPEG), with one full-size image decode at a time per process. Dates outside 2000–2100, the NUL character in any text, NaN or Infinity (in details or as the id), and details nested more than 20 levels deep are refused (400). |
@@ -216,7 +219,7 @@ These are always on:
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q                               # 261 tests, fake model, no cost (3 run only on PostgreSQL)
+python -m pytest -q                               # 265 tests, fake model, no cost (3 run only on PostgreSQL)
 METER_TEST_DB_URL=postgresql+psycopg2://user@localhost:5432/meter_test METER_DB_NULL_POOL=true python -m pytest -q
 ```
 
@@ -266,9 +269,9 @@ A request goes `app_factory.py` (endpoint) → `reading_service.py` (id, duplica
 |---|---|---|
 | `hpl_ppsm01` | HPL PPSM 01 smart meter (PSPCL) | 8 digits, 1 decimal (`0019712.7`) |
 | `hpl_ppem26` | HPL PPEM 26 (PSPCL) | 7 digits, 1 decimal |
-| `lt_er300` | L&T / Schneider ER300 (APDCL) | 8 digits, no decimal point (`00018103`) |
+| `lt_er300` | L&T / Schneider ER300 (APDCL) | 8 digits, no decimal point (`00018103`); every screen also lights the time zone in force (T0...T7), and the total is marked `C` |
 | `lt_em101` | L&T / Schneider EM101+ (APDCL) | 1 decimal; digit count varies (`2344.7`) |
-| `genus_saksham345` | Genus SAKSHAM-345 (APDCL) | 8 digits, 1 decimal (`0032740.9`) |
+| `genus_saksham345` | Genus SAKSHAM-345 (APDCL) | 8 digits, 1 decimal (`0032740.9`); every screen also lights the time zone in force (`T1 CUM kWh`) |
 | `visiontek_37tm` | Visiontek 37TM (Punjab) | 8 digits, 1 decimal |
 | `avon_asem306` | Avon ASEM-306 (Punjab) | 8 digits, 1 decimal |
 | `aew_aplsm346` | AEW APL-sm346 (Punjab) | 1 decimal; digit count not fixed |
@@ -277,11 +280,16 @@ To add one, see [Common tasks](#common-tasks).
 
 ## Accuracy so far
 
-Measured with GPT-6 Sol on hand-reviewed photos:
-- **100 trial photos.** Every ACCEPT was correct except one bill-history screen (labelled "1. bILL kW·h"), which the current prompt now declines as another screen. The returned reading was right on 36 of 51 readable photos, decimal point included; most misses were glare photos, with the wrong digit flagged in `uncertainDigits`. The rules were tuned on these same photos.
-- **268 fresh photos** (2026-10-02, $6.17). 20 of 21 ACCEPT readings were right (95.2%). The miss, PB_harrion-tapprian, was a clear-photo misread: 0016183.1 for 0016189.1, at confidence 0.98. The returned reading was right on 87 of 146 readable photos, and 17 Assam tariff or bill screens that the hand review counted as readings were rightly declined. About half of these photos had no readable total at all: 25% were unreadable even for a person, and 20% showed the wrong screen.
+**Claude Sonnet 5.5** (the provider chosen in October 2026), on the 268 hand-checked fresh photos, one read per photo and no reading history (so the previous-reading checks did not apply):
+- **Against GPT-6 Sol, same 100 photos (2026-10-21, prompt `deploy-4`, the rules then on `main`).** Claude returned the right reading on 46 of 54 readable photos (GPT-6 Sol: 32), asked for 41 retakes (GPT-6 Sol: 50), accepted 3 (GPT-6 Sol: 6) and accepted no wrong reading (neither did GPT-6 Sol). It cost $0.014 per photo against $0.022, with a median of 4 s against 24 s.
+- **Current prompt `deploy-5` against `deploy-4`, all 268 photos, same day (2026-10-23), current rules.** The right reading came back on 114 of 146 readable photos with both prompts. With `deploy-5`: 8 readable photos accepted (`deploy-4`: 5), all right; 60 of 68 unreadable photos retaken (53) and 49 of 54 other-screen photos (45), so fewer meaningless readings reach review; Genus `T1 CUM` totals go to review instead of retake; a billing-period (`BP 1`) screen is now rejected. No wrong reading was accepted in either run. (One accept differs from the hand label, but the photo clearly shows the accepted value; the hand label is wrong.) Readings vary a little from run to run: the same `deploy-4` prompt returned 119 right readings on 2026-10-21.
+- Why so few ACCEPTs: Claude answers UNREADABLE whenever it is not certain of every character, even when its best reading is right (it was on most of these), so most readable photos go to review, where the app shows the reading for confirmation. ACCEPT rises in production as consumers get confirmed previous readings and meter types are added.
 
-21 ACCEPT readings are too few to support the 95% target; about 60 with zero errors are needed. Since these runs, hard-to-read photos go to review instead of retake and H and B1 screens are rejected; neither change adds an ACCEPT. Claude was added as an option and has not been evaluated on these photos yet.
+**GPT-6 Sol**, on hand-reviewed photos:
+- **100 trial photos.** Every ACCEPT was correct except one bill-history screen (labelled "1. bILL kW·h"), which the current prompt now declines as another screen. The returned reading was right on 36 of 51 readable photos, decimal point included; most misses were glare photos, with the wrong digit flagged in `uncertainDigits`. The rules were tuned on these same photos.
+- **268 fresh photos** (2026-10-02, $6.17). 20 of 21 ACCEPT readings were right (95.2%). The miss was a clear-photo misread: 0016183.1 for 0016189.1, at confidence 0.98. The returned reading was right on 87 of 146 readable photos, and 17 Assam tariff or bill screens that the hand review counted as readings were rightly declined. About half of these photos had no readable total at all: 25% were unreadable even for a person, and 20% showed the wrong screen.
+
+21 ACCEPT readings are too few to support the 95% target; about 60 with zero errors are needed. Since these GPT-6 Sol runs, hard-to-read photos go to review instead of retake and more screen labels are rejected (H, B1, export, zone, billing-period, month, daily and high-resolution screens); none of these changes adds an ACCEPT.
 
 ## Privacy
 

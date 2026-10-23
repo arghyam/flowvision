@@ -42,9 +42,9 @@ database:
 storage:
   images_dir: "data/images"
 
-# Which model reads the photos: "openai" (GPT-6 Sol, the tested default) or "claude" (Claude Sonnet 5.5, not yet
-# evaluated on our photos). Only that provider's API key is needed; the other section below is ignored. Takes effect
-# when the service (or evaluate.py) starts. Override: METER_PROVIDER.
+# Which model reads the photos: "openai" (GPT-6 Sol, the default) or "claude" (Claude Sonnet 5.5, chosen in October
+# 2026; both evaluated on our hand-checked photos, see the README). Only that provider's API key is needed; the other
+# section below is ignored. Takes effect when the service (or evaluate.py) starts. Override: METER_PROVIDER.
 provider: "openai"
 
 # provider "openai". Tested: gpt-6-sol with high reasoning effort and high image detail.
@@ -104,7 +104,7 @@ limits:
   duplicate_photo_hours: 168      # the same photo (same bytes) of the same consumer again within this: the earlier
                                   # result is returned, with no model call; 0 = off
   reserve_per_call_usd: 0.05      # reserved against the daily budget before each model call, replaced by the real
-                                  # cost after it (no call cost more than $0.043 in 384 real GPT-6 Sol calls; Claude so far under $0.03)
+                                  # cost after it (no call cost more than $0.043 in 384 real GPT-6 Sol calls; Claude at most $0.022 in 804 calls)
   max_body_bytes: 31457280        # 30 MB: a 20 MB photo as base64 in JSON
   max_inflight_body_bytes: 157286400   # 150 MB of photo bodies held at once per worker (by Content-Length); one more
                                   # gets 503 "busy, retry" before it is read. Phone photos (~5 MB as base64) never reach
@@ -137,8 +137,8 @@ image_download:
 pricing:
   input_per_million: 2.0
   output_per_million: 10.0
-  # used when provider is "claude" (Claude Sonnet 5.5 list price, Oct 2026): about $0.011-0.022 per photo on a handful
-  # of photos so far, under limits.reserve_per_call_usd ($0.05); its accuracy is not yet evaluated.
+  # used when provider is "claude" (Claude Sonnet 5.5 list price, Oct 2026): a median of $0.014 per photo, at most
+  # $0.022, over 3 x 268 hand-checked photos; well under limits.reserve_per_call_usd ($0.05).
   claude:
     input_per_million: 2.0
     output_per_million: 10.0
