@@ -183,11 +183,22 @@ def test_more_tariff_bill_and_demand_labels_are_refused(app_with, jpeg_bytes, la
     assert r["status"] == "UNCLEAR" and r["data"]["reasons"][0]["code"] == "WRONG_SCREEN"
 
 
-@pytest.mark.parametrize("label", ["CUM kVAh 028 →", "R Y B; Prepaid; TMPR; k W h", "RYB← kW h",
-                                   "PRE PAID; ON; kVAh; CUM", "CUM kVA h 1 2 3 →"])
-def test_real_total_screen_labels_still_pass(app_with, jpeg_bytes, label):
-    c = app_with({**answer("00197127"), "screen_label": label})
+@pytest.mark.parametrize("label,unit", [("CUM kVAh 028 →", "kVAh"), ("R Y B; Prepaid; TMPR; k W h", "kWh"),
+                                        ("RYB← kW h", "kWh"), ("PRE PAID; ON; kVAh; CUM", "kVAh"),
+                                        ("CUM kVA h 1 2 3 →", "kVAh")])
+def test_real_total_screen_labels_still_pass(app_with, jpeg_bytes, label, unit):
+    c = app_with({**answer("00197127", unit=unit), "screen_label": label})
     assert post(c, imageBase64=b64(jpeg_bytes)).json()["result"]["status"] == "SUCCESS"
+
+
+def test_genus_total_screen_with_its_tariff_zone_lit_passes(app_with, jpeg_bytes):
+    # the Genus SAKSHAM-345 lights the zone in force (T1) on its total screen; other meters keep T1 as a tariff label
+    genus = {**answer("00334315", make="Genus", model_code="SAKSHAM-345"), "screen_label": "L1 L2 L3 T1 CUM kWh"}
+    r = post(app_with(genus), imageBase64=b64(jpeg_bytes)).json()["result"]
+    assert r["status"] == "SUCCESS" and r["data"]["meterReading"] == "0033431.5"
+    hpl = {**answer("00197127"), "screen_label": "T1 CUM kWh"}
+    r = post(app_with(hpl), imageBase64=b64(jpeg_bytes)).json()["result"]
+    assert r["status"] == "UNCLEAR" and r["data"]["reasons"][0]["code"] == "WRONG_SCREEN"
 
 
 def test_reading_on_a_voltage_screen_keeps_the_point_shown():                                          # [ACC-3]

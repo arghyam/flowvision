@@ -7,9 +7,13 @@ which the meter-type rules in this package now handle). Added on top: in step 1,
 make and model code so the service can look up the meter type and its decimal rule; and step 7, a best
 guess (digits and decimal places) returned with every retake/review so a person always has a starting value.
 The guesses are separate fields: they never change status or display_text, and are never billed on.
+deploy-5 (October 2026 meter research): step 1 also names zone (E1...), billing-period (BP), month, history, daily,
+high-resolution and reverse screens, says a T1/T2 lit next to CUM is the time zone in force on the total screen, and
+asks for small or faint labels to be copied too.
 """
 
-PROMPT_VERSION = "deploy-4 (trial v2 + meter identification + best guess + tariff/prepaid/bill screens + screen label)"
+PROMPT_VERSION = ("deploy-5 (trial v2 + meter identification + best guess + tariff/prepaid/bill screens + screen label"
+                  " + zone/period screens + time-zone light)")
 
 PROMPT = """You are reading a photo of a digital (LCD) electricity meter in India. The reading will be used for billing.
 
@@ -19,8 +23,8 @@ Target: the CUMULATIVE ENERGY reading (total kWh, or kVAh on meters that bill in
 
 Work through these checks in order:
 
-1. Screen. The display cycles through several screens. Only the cumulative-energy screen counts. If the LCD shows anything else (maximum demand kW / kVA / MD, voltage, current, power factor, frequency, date, time, meter ID or serial number, a test or all-segments-lit screen, a number with a label you do not recognise), or you cannot tell which screen it is, the status is NOT_CUMULATIVE_SCREEN. Three screens look like the total but are not: a tariff or time-of-day zone register (labelled T1, T2, T3..., TOD, TZ, ZONE or similar), which holds only part of the energy; a billing-history register (labelled BILL, 01 BILL, HIST, PREV, LAST or similar), which shows an earlier bill's reading; and a prepaid balance or money screen (INR, Rs, ₹, LTR, BAL, CREDIT). All three are NOT_CUMULATIVE_SCREEN. If no LCD is visible, or it is blank or off, the status is NO_DISPLAY.
-   Copy every label, word, symbol or small number shown on the LCD around the main row (for example "CUM kWh", "kVAh", "T2 kVAh", "01 Bill", "MD kW") into screen_label exactly as shown; null if the LCD shows none.
+1. Screen. The display cycles through several screens. Only the cumulative-energy screen counts. If the LCD shows anything else (maximum demand kW / kVA / MD, voltage, current, power factor, frequency, date, time, meter ID or serial number, a test or all-segments-lit screen, a number with a label you do not recognise), or you cannot tell which screen it is, the status is NOT_CUMULATIVE_SCREEN. Several screens look like the total but are not: a tariff or time-of-day zone register (labelled T1, T2, T3..., E1, E2, E3..., TOD, TZ, ZONE or similar, without CUM), which holds only part of the energy; a billing-history, billing-period or month register (labelled BILL, 01 BILL, BP, BP 1, HIST, H1, PREV, LAST, MON, MONTH or similar), which shows an earlier or partial reading; a daily, high-resolution (HR), reverse or export register; and a prepaid balance or money screen (INR, Rs, ₹, LTR, BAL, CREDIT). All of these are NOT_CUMULATIVE_SCREEN. Some meters light the time zone in force (T1, T2...) on every screen: a screen labelled CUM kWh or CUM kVAh with a T1 or T2 beside it is the cumulative-energy screen, not a tariff register. If no LCD is visible, or it is blank or off, the status is NO_DISPLAY.
+   Copy every label, word, symbol or small number shown on the LCD around the main row, including small or faint ones (for example "CUM kWh", "T1 CUM kWh", "kVAh", "E1 kVAh", "BP 1", "01 Bill", "MD kW"), into screen_label exactly as shown; null if the LCD shows none.
 
 2. Digits. Read the main row of the LCD one character at a time, left to right, including leading zeros. For each digit decide whether it is fully and unambiguously legible: no glare, blur, shadow, dirt, scratch, reflection or missing segment that could change it. Watch for the usual seven-segment confusions: 0/8, 3/8/9, 5/6, 1/7, 2/7. A digit that could be two different values is NOT legible.
 

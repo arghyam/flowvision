@@ -6,7 +6,7 @@ and a folder of photos named <image_id>.jpg, given with --review and --images. T
 (review.csv files and photos) are kept outside this repository, as the photos are private.
 
 Costs money: about $0.023 per photo per read with GPT-6 Sol (so ~$2.30 for 100 photos at the default METER_READS=1),
-about $0.011-0.022 with Claude (measured on a handful of photos). Uses the provider and model in config.yaml /
+about $0.014 with Claude (median over 3 x 268 photos). Uses the provider and model in config.yaml /
 METER_PROVIDER.
 It refuses to run without --yes.
 
@@ -90,7 +90,7 @@ def main():
     todo = [r for r in rows if r["image_id"] not in done]
     print(f"{len(todo)} photos to read ({len(rows) - len(todo)} already done) x {settings.reads} read(s) "
           f"with {settings.model}: " + (f"about ${len(todo) * settings.reads * 0.023:.2f}" if settings.provider == "openai"
-                                        else "about $0.011-0.022 per photo per read with Claude (measured on a handful of photos)"))
+                                        else f"about ${len(todo) * settings.reads * 0.014:.2f} with Claude"))
     if not args.yes:
         sys.exit("Add --yes to run it.")
     reader = MeterReader(settings)
