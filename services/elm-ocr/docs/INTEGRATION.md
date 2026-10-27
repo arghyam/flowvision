@@ -1,6 +1,6 @@
 # Meter reader API: integration guide for the JalSoochak central system
 
-This service reads the cumulative energy reading (kWh or kVAh) from a photo of an electricity meter. The central system sends one request per photo and gets the reading back in the response, usually within 20–30 seconds.
+This service reads the cumulative energy reading (kWh or kVAh) from a photo of an electricity meter. The central system sends one request per photo and gets the reading back in the response, usually within 5–30 seconds (depending on the model the operators run).
 
 Base URL: `https://<flowvision-host>/flowvision/v1/elm`. The service's operators give you the host and an API key. The same API is also served, unchanged, under the earlier base path `/meter-reader/v1`, for clients that already use it; new integrations use `/flowvision/v1/elm`.
 
@@ -91,7 +91,7 @@ Two things to watch:
 | `status` | `action` | What it means | What to do |
 |---|---|---|---|
 | `SUCCESS` | `ACCEPT` | The reading passed every check. | Use `meterReading`. |
-| `UNCLEAR` | `RETAKE` | Wrong photo: not the total screen (e.g. a tariff T1/T2 or bill screen), no unit visible, or the wrong unit. | Ask for a new photo and show `retakeHint` to the person taking it. `meterReading` holds the model's best reading, for information only; when the model saw no digits at all it holds a short sentence instead. |
+| `UNCLEAR` | `RETAKE` | Wrong photo: not the total screen (e.g. a tariff or time-of-day zone T1/T2/E1, bill, billing period BP, history H/H1, billing B1, month, daily, high-resolution or export screen), no unit visible, or the wrong unit. | Ask for a new photo and show `retakeHint` to the person taking it. `meterReading` holds the model's best reading, for information only; when the model saw no digits at all it holds a short sentence instead. |
 | `NOMETER` | `RETAKE` | No meter display is visible. | Ask for a new photo. `meterReading` holds a short explanation, not a number. |
 | `NEEDS_REVIEW` | `REVIEW` | The photo was hard to read (glare, an unclear or possibly missing digit, low confidence), or the reading failed a consistency check: wrong digit count, uncertain decimal point, lower than the previous reading, or an implausible jump. | A person checks `meterReading` against the photo, starting with the digits in `uncertainDigits` (if it is empty, check every digit), then confirms or corrects it through `/feedback`. A `?` in `meterReading` is a digit the model could not guess, and when the model could not read a single digit `meterReading` holds a short sentence: in both cases send the correct reading as `actual`. |
 
@@ -129,7 +129,7 @@ Every reading response has one of the four statuses below. Except for `SUCCESS`,
 
 `READS_DISAGREE` appears only when the operators set the service to read each photo twice (off by default). `notes`, when present, holds extra free-text details for people (for example why a reading was accepted without a cross-check); do not branch on it. Errors (`responseCode: "ERROR"`) are a separate kind of response: see [section 5](#5-errors).
 
-**Bill only on `ACCEPT`,** or on a reading a person has confirmed. The reading is returned for every photo with a display so that people can see it, but only `ACCEPT` has passed every check.
+**Use only an `ACCEPT` reading,** or one a person has confirmed. The reading is returned for every photo with a display so that people can see it, but only `ACCEPT` has passed every check.
 
 Other fields:
 - `meterReading` is the reading exactly as displayed, with leading zeros and the decimal point (`"0019712.7"`). It is a **string**: parse it as a decimal, never as a float, if you need the number. A `?` stands for a digit the model could not even guess.
@@ -138,13 +138,13 @@ Other fields:
 - `decimalSource` says where the decimal point comes from: `consumer` or `registry` (the meter type), `visible_point`, `previous_reading`, or `model_guess`.
 - `reasons` is a list of `{code, message}` explaining a non-ACCEPT result.
   - Photo problems (RETAKE): `NO_DISPLAY`, `WRONG_SCREEN`, `UNIT_NOT_VISIBLE`, `UNIT_MISMATCH`.
-  - Review needed: `UNREADABLE`, `DIGITS_UNCLEAR` (a digit unclear or possibly missing), `LOW_CONFIDENCE` (the photo was hard to read, e.g. glare), `DIGIT_COUNT_MISMATCH`, `DECIMAL_UNCERTAIN`, `NO_CROSS_CHECK`, `BELOW_PREVIOUS`, `JUMP_TOO_LARGE`, `HISTORY_UNAVAILABLE` (the previous readings could not be checked), `READS_DISAGREE`, `BAD_OUTPUT`, `CORRECTED_BEFORE` (a person already marked the reading of this same photo wrong or corrected it, so it is not read or accepted again; see [section 4](#4-timeouts-and-retries)).
+  - Review needed: `UNREADABLE`, `DIGITS_UNCLEAR` (a digit unclear or possibly missing), `LOW_CONFIDENCE` (the photo was hard to read, e.g. glare), `DIGIT_COUNT_MISMATCH`, `DECIMAL_UNCERTAIN`, `NO_CROSS_CHECK`, `BELOW_PREVIOUS`, `JUMP_TOO_LARGE`, `HISTORY_UNAVAILABLE` (the previous readings could not be checked), `READS_DISAGREE`, `BAD_OUTPUT` (the model's answer contradicts itself, e.g. the unit it read and the LCD label it copied name different totals), `CORRECTED_BEFORE` (a person already marked the reading of this same photo wrong or corrected it, so it is not read or accepted again; see [section 4](#4-timeouts-and-retries)).
 - Fields with no value (e.g. `retakeHint` on an ACCEPT) are left out of the response rather than sent as `null`. The one exception is `previousReading`, the previous reading the result was compared with: its `unit` or `capturedAt` can be `null`.
 - `correlationId` identifies this reading for `/feedback`.
 
 ## 4. Timeouts and retries
 
-- A reading normally takes 20–30 seconds and never more than about **100 seconds**. **Set your HTTP client's timeout to 120 seconds.**
+- A reading normally takes 5–30 seconds and never more than about **100 seconds**. **Set your HTTP client's timeout to 120 seconds.**
 - **Always send your own `id`, and use the same `id` when you retry.** The service treats the id as an idempotency key:
   - If that id already has a result, the service returns the **stored** result: the same reading and `correlationId`, no second model call, and the response header `Idempotent-Replay: true`.
   - If that id is still being processed, the response is HTTP 409 `ERROR_12` with `retryable: true`. Wait for the `Retry-After` header, then send it again.

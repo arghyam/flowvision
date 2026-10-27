@@ -180,7 +180,8 @@ class ReadingService:
         self.budget = DailyBudget(self.settings.daily_budget_usd, metadata_store.reserve)
         self.slots = ReadSlots(self.settings.max_concurrent_reads, self.settings.busy_wait)
         # reserved against the daily budget before each paid read, per model call: more than any call measured so
-        # far costs (max $0.043 in 384 real calls), so readings in flight cannot carry spend past the cap
+        # far costs (max $0.043 in 384 GPT-6 Sol calls; Claude calls so far under $0.03), so readings in flight cannot
+        # carry spend past the cap
         self.reserve_usd = round(self.settings.reserve_per_call_usd * reader.settings.reads, 5)
 
     # ---------- reading ----------

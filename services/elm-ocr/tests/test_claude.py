@@ -158,7 +158,7 @@ def test_schema_for_claude_writes_type_lists_as_anyof():
     assert schema["properties"]["unit"] == {"anyOf": [{"type": "string"}, {"type": "null"}]}
     assert schema["properties"]["status"] == SCHEMA["properties"]["status"]      # enums unchanged
     assert schema["required"] == SCHEMA["required"] and schema["additionalProperties"] is False
-    assert SCHEMA["properties"]["unit"]["type"] == ["string", "null"]           # OpenAI's schema is not modified
+    assert SCHEMA["properties"]["unit"]["type"] == ["string", "null"]           # the shared schema (sent as is to OpenAI) is not modified
 
 
 def test_reader_accepts_and_prices_a_claude_reading(jpeg_bytes):

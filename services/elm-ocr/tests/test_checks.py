@@ -13,7 +13,7 @@ REG = MeterTypeRegistry()
 
 def rule_for(a):
     t = REG.identify(a)
-    return MeterRule(t.decimals, t.digits, "registry", t.id) if t else None
+    return MeterRule(t.decimals, t.digits, "registry", t.id, tariff_indicator=t.tariff_indicator) if t else None
 
 
 def check(a, min_conf=0.9):
@@ -115,13 +115,86 @@ def test_unit_must_be_a_visible_energy_unit():
 def test_label_of_a_non_total_screen_overrides_the_model():
     # the model said READ on the cumulative screen, but the LCD label it copied says otherwise
     for label in ("T2 kVAh", "t1 kVAh", "01 Bill", "BILL 02 kWh", "TOD 3", "Zone 2 kWh", "1.8.1", "MD kW",
-                  "LTR INR", "Rs", "BAL", "Hist 1", "PREV kWh"):
+                  "LTR INR", "Rs", "BAL", "Hist 1", "PREV kWh",
+                  # history register: a standalone H, or H with a number (not the h of the unit)
+                  "H", "H kWh", "kWh H", "kWh-H", "H1", "H 1", "H-1", "H01", "H12", "H1 kWh", "kWh H1",
+                  # billing register: B with a number
+                  "B1", "B 1", "B-1", "B01", "B12", "B1 kWh", "kWh B1",
+                  # export register: energy sent to the grid, not consumption
+                  "EXPORT kWh", "EXP kWh", "Exp. kWh", "kWh EXP", "kWhEXP", "EXPORTED kWh", "EXP",
+                  # October 2026 research: TOD zone energy (E1...), seen on Assam photos ("E3 kVA h" under 0001322.8)
+                  "E1", "E2 kWh", "E3 kVAh 2 3", "E3 kVA h", "E 1 kWh", "kWhE1", "T1 E1 kVAh",
+                  # billing period ("BP 1" beside 014491.4 kWh on an Assam photo)
+                  "BP", "BP 1", "BP1", "BP-1", "B.P. 1 kWh", "I₂ R Y B BP 1 kW h", "b1", "b 1",
+                  # high-resolution screen (it cuts the leading digits), history and month registers
+                  "HR kWh", "kWh HR", "HI-RES", "HIGH RES kWh", "HIS 1", "MON kWh", "MONTH kWh", "CUR MON",
+                  "CURR MONTH kWh", "MTD", "M1 kWh", "M-1", "M 12", "LAST MONTH kWh", "Last Bill kWh",
+                  # daily or period consumption, reverse and generator energy, L&T tariff-zone totals, OBIS codes
+                  "DAY kWh", "dAY", "TODAY", "DAILY kWh", "CONS kWh", "CONSUMPTION", "USAGE kWh", "REV kWh",
+                  "Reverse kWh", "DG kWh", "C1 kWh", "C 7 kWh", "1.8.0*01", "1.8.0 * 1", "9.8.1", "10.8.0", "Rs/kWh"):
         a = answer("0019712.7")
         a["screen_label"] = label
         o = check(a)
         assert o.reason == "WRONG_SCREEN" and o.outcome == RETAKE, label
-    for label in ("CUM kWh", "kWh", "kVAh", "Cum. kVAh", "1.8.0", "TOTAL kWh", "IMPORT kWh", None, ""):
-        a = answer("0019712.7")
+    for label in ("CUM kWh", "kWh", "kVAh", "Cum. kVAh", "1.8.0", "TOTAL kWh", "IMPORT kWh", None, "",
+                  # the h of the unit, however the LCD spaces it, is not an H label
+                  "kW h", "KW H", "kW  h", "kW·h", "kW.h", "kW-h", "kVA h", "KVA H",
+                  # a B without a number is the phase indicator (R Y B), shown on every screen
+                  "R Y B kWh", "RYB kWh", "R B kWh", "B kWh", "B",
+                  # net and import totals are consumption readings
+                  "NET kWh", "Net kWh", "kWh NET", "IMP kWh", "IMPORT kWh", "IP-Cu kWh", "IP-Cu",
+                  # a sum of tariff zones is the total itself
+                  "C (T1+T2) kWh", "T1+T2 kWh", "T1 + T2 + T3 kWh",
+                  # status indicators shown on every screen, and the OBIS codes of the totals
+                  "RYB CUM kWh Prepaid TMPR", "L1 L2 L3 CUM kVAh", "RYB Prepaid PF", "C kWh", "9.8.0",
+                  "MEMORY", "kWh 1 2 3"):
+        a = answer("0019712.7", unit=normalize_unit(label) if normalize_unit(label) in ("kWh", "kVAh") else "kWh")
+        a["screen_label"] = label
+        assert check(a).ok, label
+
+
+def test_tariff_zone_lit_on_the_genus_total_screen_is_not_a_tariff_label():
+    # Genus SAKSHAM-345: the total screen reads "L1 L2 L3 T1 CUM kWh", T1 (or T2...) being the zone in force
+    for label in ("L1 L2 L3 T1 CUM kWh", "T1 CUM kWh", "T2 CUM kWh", "T 1 CUM kWh", "CUM kWh T1"):
+        a = answer("0033431.5", make="Genus", model_code="SAKSHAM-345")
+        a["screen_label"] = label
+        assert check(a).ok, label
+    a = answer("0016628.3", unit="kVAh", make="Genus", model_code="SAKSHAM-345")
+    a["screen_label"] = "T1 CUM kVAh"
+    assert check(a).ok
+    for label, why in (("T1 kWh", "no CUM: may be the tariff register"), ("T1 CUM kWh BILL", "a bill screen"),
+                       ("T1 CUM kWh H1", "a history screen"), ("TOD CUM kWh", "TOD is not the zone indicator"),
+                       ("L1 L2 L3 T1 LTR kWh", "prepaid balance")):
+        a = answer("0033431.5", make="Genus", model_code="SAKSHAM-345")
+        a["screen_label"] = label
+        assert check(a).reason == "WRONG_SCREEN", why
+    # L&T ER300P: its manual says T0...T7 is the time zone shown on every screen, and marks the total with C
+    for label in ("C T1 kWh", "T1 C kWh", "kWh T1 CUM"):
+        a = answer("00018103", make="L&T", model_code="ER300P")
+        a["screen_label"] = label
+        assert check(a).ok, label
+    for label in ("kWh T1 01 Bill 1 2 3", "C1 kWh", "T1 kWh"):
+        a = answer("00018103", make="L&T", model_code="ER300P")
+        a["screen_label"] = label
+        assert check(a).reason == "WRONG_SCREEN", label
+    # on any other meter, or an unidentified one, T1 next to CUM is still a tariff label
+    for make, code in (("HPL", "PPSM 01"), ("Genus", None), ("L&T", None)):
+        a = answer("0019712.7", make=make, model_code=code)
+        a["screen_label"] = "T1 CUM kWh"
+        assert check(a).reason == "WRONG_SCREEN", (make, code)
+
+
+def test_unit_and_label_that_disagree_are_never_accepted():
+    # the model's unit and the LCD label it copied name different totals: a person checks which one is shown
+    for label, unit in (("CUM kVAh", "kWh"), ("CUM kWh", "kVAh"), ("kVA h", "kWh"), ("CUM kVArh", "kWh")):
+        a = answer("0019712.7", unit=unit)
+        a["screen_label"] = label
+        o = check(a)
+        assert o.reason == "BAD_OUTPUT" and o.outcome == NEEDS_REVIEW and o.unit == unit, label
+    # a label naming no unit, or the meter's printed legend of all of them, decides nothing
+    for label, unit in (("kWh kVAh kVArh", "kWh"), ("kWh, kVAh, kVArh, kWh", "kVAh"), ("R Y B", "kVAh"), ("", "kWh"),
+                        ("CUM kW h", "kWh"), ("CUM kVA h", "kVAh")):
+        a = answer("0019712.7", unit=unit)
         a["screen_label"] = label
         assert check(a).ok, label
 

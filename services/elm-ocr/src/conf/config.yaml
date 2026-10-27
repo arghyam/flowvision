@@ -16,8 +16,9 @@ basepaths:
   - "/flowvision/v1/elm"
   - "/meter-reader/v1"
 
-# Logs go to stdout (one line per record; METER_LOG_FORMAT=json|text) and, unless METER_LOG_TO_FILES=false, to these
-# daily-rotated files (relative paths are under meter_reader_service/), kept METER_LOG_RETENTION_DAYS days (30).
+# Logs go to stdout (one line per record; METER_LOG_FORMAT=json|text) and, in development, to these daily-rotated files
+# (relative paths are under services/elm-ocr/), kept METER_LOG_RETENTION_DAYS days (30). METER_LOG_TO_FILES turns the
+# files on or off; they are off by default in production and in the Docker image.
 logs:
   api_logger:
     path: "logs/api_logs"
@@ -29,7 +30,7 @@ logs:
     path: "logs/extraction_request_logs"
     name: "MeterReaderExtraction"
 
-# SQLAlchemy URL. SQLite works out of the box (relative paths are under meter_reader_service/); production uses
+# SQLAlchemy URL. SQLite works out of the box (relative paths are under services/elm-ocr/); production uses
 # PostgreSQL, e.g. postgresql+psycopg2://user:pass@host:5432/meter_reader?sslmode=require
 # Override: METER_DB_URL (keeps the password out of this file). Pool: METER_DB_POOL_SIZE, METER_DB_MAX_OVERFLOW.
 database:
@@ -37,13 +38,13 @@ database:
 
 # Every photo is saved, unchanged, as <images_dir>/<YYYY-MM-DD>/<request id>.<jpg|png|webp>, and its name is stored
 # with the reading (GET /readings/{id}/image returns it). The name holds no consumer details. images_dir is a folder
-# (relative paths are under meter_reader_service/) or s3://bucket/prefix. Override: METER_IMAGE_DIR ("none" = don't).
+# (relative paths are under services/elm-ocr/) or s3://bucket/prefix. Override: METER_IMAGE_DIR ("none" = don't).
 storage:
   images_dir: "data/images"
 
-# Which model reads the photos: "openai" (GPT-6 Sol, the tested default) or "claude" (Claude Sonnet 5.5, not yet
-# evaluated on our photos). Only that provider's API key is needed; the other section below is ignored. Takes effect
-# when the service (or evaluate.py) starts. Override: METER_PROVIDER.
+# Which model reads the photos: "openai" (GPT-6 Sol, the default) or "claude" (Claude Sonnet 5.5, chosen in October
+# 2026; both evaluated on our hand-checked photos, see the README). Only that provider's API key is needed; the other
+# section below is ignored. Takes effect when the service (or evaluate.py) starts. Override: METER_PROVIDER.
 provider: "openai"
 
 # provider "openai". Tested: gpt-6-sol with high reasoning effort and high image detail.
@@ -56,7 +57,7 @@ openai:
   image_detail: "high"
   base_url: "https://api.openai.com/v1"
   timeout_seconds: 90          # longest wait for one answer (also capped by the request deadline)
-  max_attempts: 2              # 1 retry, only for errors OpenAI did not bill (429 rate limit, 5xx, connection refused)
+  max_attempts: 2              # 1 retry, only for errors OpenAI did not bill (429 rate limit, 500/502/503, connection refused)
 
 # provider "claude", through Anthropic's API (same prompt and answer format as OpenAI). The API key is read only from
 # the ANTHROPIC_API_KEY env var. Overrides: METER_MODEL, METER_REASONING_EFFORT (the effort below),
@@ -68,7 +69,7 @@ claude:
   base_url: "https://api.anthropic.com"
   workspace_id: null           # only for a key not scoped to a workspace (sk-ant-usr...): the workspace to use (wrkspc_...)
   timeout_seconds: 90          # longest wait for one answer (also capped by the request deadline)
-  max_attempts: 2              # 1 retry, only for errors Anthropic did not bill (429, 5xx, connection refused)
+  max_attempts: 2              # 1 retry, only for errors Anthropic did not bill (429, 500/502/503/529, connection refused)
 
 # Checks. Overrides: METER_READS, METER_MIN_CONFIDENCE, METER_CLEAR_READ_CONFIDENCE, METER_MAX_DAILY_INCREASE,
 # METER_TYPES_FILE.
@@ -91,19 +92,19 @@ reader:
   # Optional JSON file with extra meter models (see service/vision/meter_types.py).
   meter_types_file: null
 
-# Limits that protect the OpenAI bill and the service.
+# Limits that protect the model bill and the service.
 limits:
   request_deadline_seconds: 100   # one reading, download to answer; set the load balancer idle timeout above it (120)
   max_concurrent_reads: 8         # per worker process; more wait busy_wait_seconds, then get 503 (retry later). Sized
                                   # for a 4 GB task with 2 workers (DEPLOY_AWS.md); raise it only with more memory
   busy_wait_seconds: 30           # a short burst queues; only a sustained overload gets 503
   daily_budget_usd: 25            # USD: model calls stop for the rest of the day (India time) once the day's spend
-                                  # reaches this; about 1,080 photos at ~$0.023 each. METER_DAILY_BUDGET_USD overrides
+                                  # reaches this; about 1,080 photos with GPT-6 Sol (~$0.023 each), more with Claude. METER_DAILY_BUDGET_USD overrides
                                   # it ("none" = no cap, on purpose; production refuses to start without a choice)
   duplicate_photo_hours: 168      # the same photo (same bytes) of the same consumer again within this: the earlier
                                   # result is returned, with no model call; 0 = off
   reserve_per_call_usd: 0.05      # reserved against the daily budget before each model call, replaced by the real
-                                  # cost after it (no call cost more than $0.043 in 384 real calls)
+                                  # cost after it (no call cost more than $0.043 in 384 real GPT-6 Sol calls; Claude at most $0.022 in 804 calls)
   max_body_bytes: 31457280        # 30 MB: a 20 MB photo as base64 in JSON
   max_inflight_body_bytes: 157286400   # 150 MB of photo bodies held at once per worker (by Content-Length); one more
                                   # gets 503 "busy, retry" before it is read. Phone photos (~5 MB as base64) never reach
@@ -131,12 +132,13 @@ image_download:
 # Client authentication: METER_SERVICE_API_KEY (comma-separated to accept several while rotating). Every endpoint
 # except /, /health and /ready then requires the header X-API-Key. Unset = no authentication (refused in production).
 
-# USD per 1M tokens, used for the cost estimate in each response and for the daily budget (GPT-6 Sol list price, Sep 2026).
+# USD per 1M tokens for provider "openai", used for the cost estimate in each response and for the daily budget
+# (GPT-6 Sol list price, Sep 2026).
 pricing:
   input_per_million: 2.0
   output_per_million: 10.0
-  # used when provider is "claude" (Claude Sonnet 5.5 list price, Oct 2026). Claude's cost per photo has not been
-  # measured yet: check costEstimateUsd on the first readings against limits.reserve_per_call_usd ($0.05).
+  # used when provider is "claude" (Claude Sonnet 5.5 list price, Oct 2026): a median of $0.014 per photo, at most
+  # $0.022, over 3 x 268 hand-checked photos; well under limits.reserve_per_call_usd ($0.05).
   claude:
     input_per_million: 2.0
     output_per_million: 10.0

@@ -95,6 +95,7 @@ class MetadataStore:
                       seconds, e.g. a worker restart): this request takes it over
         'in_progress' another request with this id is being processed right now
         'replay'      the id already has a result: row holds it
+        'conflict'    the id belongs to another consumer's failed request: it is never taken over
         Raises sqlalchemy errors if the database is unavailable."""
         t = extraction_data
         record = self._row({**record, "meter_reading_status": PROCESSING})
@@ -238,14 +239,6 @@ class MetadataStore:
                 actual_reading=None if actual is None else str(actual),
                 feedback_timestamp=self.ts(ts)))
         return result.rowcount
-
-    def spend_since(self, since: datetime) -> float:
-        """Model cost (USD) of the requests that arrived since `since`."""
-        t = extraction_data
-        row = self.database_service.fetch_one(
-            db.select(db.func.coalesce(db.func.sum(t.c.cost_usd), 0.0).label("total"))
-            .where(t.c.request_timestamp >= self.ts(since)))
-        return float(row["total"] or 0.0)
 
     def ping(self) -> bool:
         return self.database_service.ping()

@@ -1,6 +1,6 @@
 # Deploying the meter reader on AWS
 
-This guide covers the AWS pieces the service needs, two ways to run it (containers on ECS Fargate, or an EC2 instance like FlowVision), and the checks to run before the central JalSoochak system starts sending photos.
+This guide covers the AWS pieces the service needs, two ways to run it (containers on ECS Fargate, or an EC2 instance like FlowVision), and the checks to run before the central JalSoochak system starts sending photos. For Kubernetes, which the repository's CI builds the image for (ECR repository `meter-reader`), see [ADR-001](../../../docs/adr/ADR-001-multi-service-layout.md); the environment variables, alarms and limits below apply there too.
 
 ```
 JalSoochak central system ──HTTPS──> Application Load Balancer ──HTTP:8000──> meter reader (ECS tasks or EC2)
@@ -30,7 +30,7 @@ Set these as ECS task environment variables and secrets, or in `/etc/meter-reade
 |---|---|
 | `METER_ENV` | `production` |
 | `OPENAI_API_KEY` | secret |
-| `METER_PROVIDER` | `openai` (default, GPT-6 Sol) or `claude` (Claude Sonnet 5.5; then set `ANTHROPIC_API_KEY`, a secret, instead of `OPENAI_API_KEY`). Only that model reads the photos; no other model is tried. When switching, remove `METER_MODEL` and `METER_REASONING_EFFORT` or set Claude values, or the service refuses to start. Sending consumer photos to Anthropic needs the data-sharing approval first (README, Privacy). |
+| `METER_PROVIDER` | `openai` (default, GPT-6 Sol) or `claude` (Claude Sonnet 5.5; then set `ANTHROPIC_API_KEY`, a secret, instead of `OPENAI_API_KEY`). Only that model reads the photos; no other model is tried. When switching, remove `METER_MODEL` (or set a Claude model), or the service refuses to start; `METER_REASONING_EFFORT`, if set, must be a Claude effort (`low` to `max`, or `none`). Sending consumer photos to Anthropic needs the data-sharing approval first (README, Privacy). |
 | `ANTHROPIC_WORKSPACE_ID` | Claude only, and only for an API key that is not tied to one workspace: the workspace to use (`wrkspc_...`). |
 | `METER_SERVICE_API_KEY` | secret. Comma-separate two keys while rotating. |
 | `METER_DB_URL` | secret: `postgresql+psycopg2://USER:PASSWORD@RDS-ENDPOINT:5432/meter_reader?sslmode=require` |
@@ -38,11 +38,11 @@ Set these as ECS task environment variables and secrets, or in `/etc/meter-reade
 | `METER_IMAGE_URL_ALLOWED_HOSTS` | JalSoochak's image host name(s), comma-separated (only these and their subdomains are downloaded from; downloads ignore `HTTP_PROXY`) |
 | `METER_IMAGE_URL_HEADERS` | secret, if JalSoochak's image endpoint needs credentials, e.g. `{"Authorization": "Bearer ..."}`. Sent only to the allowed hosts. |
 | `METER_ALLOW_PRIVATE_IMAGE_URLS` | `true` only if the image host resolves to private VPC addresses. Cloud metadata addresses stay blocked. Credentials then also go over plain HTTP, but only to a private address. |
-| `METER_DAILY_BUDGET_USD` | Default **25** (config.yaml): model calls stop for the rest of the day (midnight to midnight India time) once the day's spend reaches $25, about 1,080 photos at ~$0.023 each. Readings in flight count: each reserves $0.05 per model call (`limits.reserve_per_call_usd`), more than any real call has cost, so spend does not overshoot the cap. Raise it if the pilot sends more; `none` removes the cap (on purpose only). Also set a monthly budget on the OpenAI account itself. |
+| `METER_DAILY_BUDGET_USD` | Default **25** (config.yaml): model calls stop for the rest of the day (midnight to midnight India time) once the day's spend reaches $25, about 1,080 photos at ~$0.023 each with GPT-6 Sol. Readings in flight count: each reserves $0.05 per model call (`limits.reserve_per_call_usd`), more than any real call has cost, so spend does not overshoot the cap. Raise it if the pilot sends more; `none` removes the cap (on purpose only). Also set a monthly budget on the provider's account itself (OpenAI, or Anthropic with `METER_PROVIDER=claude`). |
 | `WORKERS` | gunicorn workers per task or instance, e.g. `2` (each runs up to 8 readings at once; `METER_MAX_CONCURRENT_READS`, sized for 2 workers in a 4 GB task: raise it only with more task memory) |
 
 Everything else has production defaults, listed with the other options in `.env.example` and `src/conf/config.yaml`:
-- 100 s request deadline; `gunicorn.conf.py` derives its timeouts from it (`METER_REQUEST_DEADLINE`, from the environment or `meter_reader_service/.env`, else config.yaml; `WORKERS` from the environment or `.env`, else 2) and keeps connections alive for 130 s, above the ALB's 120 s idle timeout;
+- 100 s request deadline; `gunicorn.conf.py` derives its timeouts from it (`METER_REQUEST_DEADLINE`, from the environment or `services/elm-ocr/.env`, else config.yaml; `WORKERS` from the environment or `.env`, else 2) and keeps connections alive for 130 s, above the ALB's 120 s idle timeout;
 - JSON logs to stdout, gunicorn's own lines (worker killed, out of memory, timeouts) included; access-log lines carry no query strings;
 - API docs off.
 
@@ -85,12 +85,12 @@ On an Ubuntu instance with an instance profile (Python 3.12, the default on Ubun
 ```bash
 sudo useradd --system --create-home --home-dir /opt/meter-reader meterreader
 sudo -u meterreader git clone https://github.com/arghyam/flowvision.git /opt/meter-reader/src-repo
-sudo ln -s /opt/meter-reader/src-repo/services/elm-ocr /opt/meter-reader/meter_reader_service
+sudo ln -s /opt/meter-reader/src-repo/services/elm-ocr /opt/meter-reader/elm-ocr
 sudo -u meterreader python3.12 -m venv /opt/meter-reader/venv
-sudo -u meterreader /opt/meter-reader/venv/bin/pip install --require-hashes -r /opt/meter-reader/meter_reader_service/requirements.lock
-sudo -u meterreader mkdir -p /opt/meter-reader/meter_reader_service/data /opt/meter-reader/meter_reader_service/logs
+sudo -u meterreader /opt/meter-reader/venv/bin/pip install --require-hashes -r /opt/meter-reader/elm-ocr/requirements.lock
+sudo -u meterreader mkdir -p /opt/meter-reader/elm-ocr/data /opt/meter-reader/elm-ocr/logs
 sudo install -m 600 /dev/null /etc/meter-reader.env && sudoedit /etc/meter-reader.env    # the variables from section 2
-sudo cp /opt/meter-reader/meter_reader_service/meter_reader.service /etc/systemd/system/
+sudo cp /opt/meter-reader/elm-ocr/meter_reader.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now meter_reader
 journalctl -u meter_reader -f
 ```
@@ -108,7 +108,7 @@ With Docker on EC2 instead of systemd, `docker compose up -d` (see `docker-compo
 ```bash
 curl -s https://<host>/health                    # {"status":"ok"}
 curl -s https://<host>/ready                     # {"status":"ok","database":"ok",...}
-# one real reading (about $0.023); use a new consumer id each time: the same photo of the same consumer within 7 days is answered from the earlier result, with no model call
+# one real reading (about $0.023 with GPT-6 Sol); use a new consumer id each time: the same photo of the same consumer within 7 days is answered from the earlier result, with no model call
 python scripts/run.py path/to/meter.jpg --server https://<host> --api-key <key> --consumer SMOKE-TEST-$(date +%Y%m%d%H%M)
 ```
 
@@ -128,7 +128,7 @@ Useful CloudWatch alarms:
   - the OpenAI account out of credit (`insufficient_quota`) or an OpenAI key rejected; with `METER_PROVIDER=claude`, the Anthropic account out of credit (HTTP 402), a rejected Anthropic key (401/403) or an unknown model (404);
   - results that could not be stored;
   - a photo that could not be saved (e.g. S3 refused the upload; the reading is still returned);
-  - a gunicorn worker timeout (gunicorn's own lines are JSON in production too). (gunicorn's own lines are JSON in production too).
+  - a gunicorn worker timeout (gunicorn's own lines are JSON in production too).
 - **A log metric filter for `{ $.message = "*out of memory*" }`** (gunicorn's line when a worker is killed for memory), alarming on 1 or more.
 - **RDS** CPU, free storage and connections.
 
@@ -140,11 +140,11 @@ None of these limits stops the service by itself; each only acts in the situatio
 
 | Limit | Default | When it acts | What happens | Change with |
 |---|---|---|---|---|
-| Daily model spend | $25 a day (about 1,080 photos) | The day's model spend, plus the reservations of readings in flight, leaves no room for one more $0.05 reservation | Model calls stop until midnight India time (429 `ERROR_11`), CRITICAL log. If only the reservations of other readings in progress are in the way, the 429 is retryable (`Retry-After: 60`); a retried id whose earlier attempt was billed is told the budget is used up when no other reading is in progress | `METER_DAILY_BUDGET_USD`, `limits.reserve_per_call_usd` (0.05) in config.yaml |
+| Daily model spend | $25 a day (about 1,080 GPT-6 Sol photos) | The day's model spend, plus the reservations of readings in flight, leaves no room for one more $0.05 reservation | Model calls stop until midnight India time (429 `ERROR_11`), CRITICAL log. If only the reservations of other readings in progress are in the way, the 429 is retryable (`Retry-After: 60`); a retried id whose earlier attempt was billed is told the budget is used up when no other reading is in progress | `METER_DAILY_BUDGET_USD`, `limits.reserve_per_call_usd` (0.05) in config.yaml |
 | Same photo again | 7 days | The identical photo file of the same consumer arrives again with a new id | The original read's result is returned; no model call, no cost. While it is still being read, 409 `ERROR_12` (retryable). A photo a person corrected goes to review (`CORRECTED_BEFORE`), even with the setting at 0 | `METER_DUPLICATE_PHOTO_HOURS` (0 = no reuse and no in-flight check) |
 | Readings at once | 8 per worker | More readings than that at the same moment | Up to 8 more wait up to 30 s for a slot, then get 503 `ERROR_10` (retryable); beyond that, 503 at once. Sized so a 1 vCPU, 4 GB task with 2 workers is not killed for memory by a burst | `METER_MAX_CONCURRENT_READS` (raise only with more task memory), `METER_BUSY_WAIT_SECONDS`, `WORKERS` |
-| Time per reading | 100 s | The model provider is very slow (a normal reading takes ~20 s with OpenAI, ~5 s with Claude) | That reading fails with 502 `ERROR_04`, retryable | `METER_REQUEST_DEADLINE` |
-| Model retries | 1 (2 attempts in total) | The provider says busy (429, or 529 for Anthropic), returns a 5xx error, or cannot be reached (Claude gives up connecting after 5 s) | One more try if time allows; never after a timeout or a dropped connection, which may already be billed | OpenAI: `METER_OPENAI_ATTEMPTS` (total attempts; 1 = no retry). Claude: `claude.max_attempts` in config.yaml (no environment override) |
+| Time per reading | 100 s | The model provider is very slow (a normal reading takes ~20 s with OpenAI, ~4 s with Claude (at most ~15 s seen)) | That reading fails with 502 `ERROR_04`, retryable | `METER_REQUEST_DEADLINE` |
+| Model retries | 1 (2 attempts in total) | The provider says busy (429, or 529 for Anthropic), returns 500, 502 or 503, or cannot be reached (Claude gives up connecting after 5 s) | One more try if time allows; never after a timeout or a dropped connection, which may already be billed | OpenAI: `METER_OPENAI_ATTEMPTS` (total attempts; 1 = no retry). Claude: `claude.max_attempts` in config.yaml (no environment override) |
 | Request size | 30 MB | A bigger request body | 413 `ERROR_003` (a body that declares its size is read, up to 60 MB, and discarded first, so the client gets the error, not a connection reset; a streamed body without `Content-Length` is cut off at 30 MB) | `METER_MAX_BODY_BYTES` |
 | Photo bodies held at once | 150 MB per worker, by `Content-Length` (a body without one counts as 30 MB) | A burst of large photos (normal ~5 MB phone photos never reach it) | One more reading request gets 503 `ERROR_10` (retryable, `Retry-After: 10`); its body is read and thrown away unparsed (so the client gets the 503, not a connection reset), so it is not stored and gets a new response id. A body that stalls for 60 s between two parts gets a retryable 503 (send it again) and frees its place | `METER_MAX_INFLIGHT_BODY_BYTES` |
 | Image size | 20 MB; 250 MP (single-scan grey or colour JPEG) / 16 MP (PNG, WebP, and progressive, multi-scan or CMYK JPEG); one full-size decode at a time per worker | A bigger photo | 400 or 413 | `file_size_limit`, `reader.max_jpeg_pixels`, `reader.max_image_pixels` in config.yaml |
@@ -161,7 +161,7 @@ A lost database connection fails within about 15–25 s as 503 `ERROR_13` (retry
 
 Throughput:
 
-- One reading holds a read slot for about 20 s. One task with 2 workers × 8 slots handles about 0.8 photos per second (about 69,000 a day) in steady state; a short burst waits for a slot, and a sustained overload gets `503 ERROR_10` (retryable) instead of queueing without limit. Add tasks for more; raise `METER_MAX_CONCURRENT_READS` only with more task memory.
+- One reading holds a read slot for about 20 s with GPT-6 Sol (about 4 s with Claude). One task with 2 workers × 8 slots then handles about 0.8 photos per second (about 69,000 a day) with GPT-6 Sol, and several times that with Claude (up to about five times by the slot time alone), in steady state; a short burst waits for a slot, and a sustained overload gets `503 ERROR_10` (retryable) instead of queueing without limit. Add tasks for more; raise `METER_MAX_CONCURRENT_READS` only with more task memory.
 - The provider's own rate limits for the account usually bind first. Check the OpenAI account's tier, or the Anthropic organization's rate limits with `METER_PROVIDER=claude`.
 - DB connections: each worker opens up to 15 connections (`METER_DB_POOL_SIZE` 5 + `METER_DB_MAX_OVERFLOW` 10). Keep tasks × workers × 15 under the RDS connection limit.
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ReaderSettings:
-    openai_api_key: str                         # "" when provider is "claude"
+    openai_api_key: str                         # needed only when provider is "openai"
     provider: str = "openai"                    # "openai" (GPT-6 Sol, the tested default) or "claude" (Anthropic)
     model: str = "gpt-6-sol"                    # a model of that provider
     reasoning_effort: str | None = "high"      # OpenAI reasoning effort, or Claude effort; None: the model's default

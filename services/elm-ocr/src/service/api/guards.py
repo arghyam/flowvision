@@ -1,5 +1,5 @@
 """
-Two limits that protect the OpenAI bill and the service itself:
+Two limits that protect the model bill and the service itself:
 - DailyBudget: once today's model spend reaches METER_DAILY_BUDGET_USD, new readings are refused (HTTP 429)
   until the next day (India time). Spend is summed from the database, so every instance shares one cap, and readings
   in flight count: each paid read first reserves its estimated cost (MetadataStore.reserve, under a lock shared by

@@ -1,20 +1,21 @@
 """
-Run the full meter reader (real OpenAI calls) over hand-checked photos and report how safe it is.
+Run the full meter reader (real model calls, OpenAI or Claude) over hand-checked photos and report how safe it is.
 
 Needs a review CSV with columns image_id, truth_kind (reading | not_cumulative | unreadable), truth_display,
-and a folder of photos named <image_id>.jpg. By default: the trial's hand review (../trial/review.csv) and its
-photos (../trial/outputs/review_images/, local only).
+and a folder of photos named <image_id>.jpg, given with --review and --images. The hand-checked trial and fresh sets
+(review.csv files and photos) are kept outside this repository, as the photos are private.
 
-Costs money: about $0.023 per photo per read with GPT-6 Sol (so ~$2.30 for 100 photos at the default METER_READS=1).
-Uses the provider and model in config.yaml / METER_PROVIDER; Claude's cost per photo has not been measured yet.
+Costs money: about $0.023 per photo per read with GPT-6 Sol (so ~$2.30 for 100 photos at the default METER_READS=1),
+about $0.014 with Claude (median over 3 x 268 photos). Uses the provider and model in config.yaml /
+METER_PROVIDER.
 It refuses to run without --yes.
 
 Results are appended to --out, one line per photo with the model's full answer (so rule changes can be replayed
 offline). Re-running skips photos already answered with the same prompt version, so a crash costs nothing twice;
 --fresh starts over.
 
-    python scripts/evaluate.py --yes
-    python scripts/evaluate.py --yes --limit 10 --reads 1
+    python scripts/evaluate.py --review <review.csv> --images <photo folder> --yes
+    python scripts/evaluate.py --review <review.csv> --images <photo folder> --yes --limit 10 --reads 1
 """
 import argparse
 import csv
@@ -32,8 +33,6 @@ sys.path.insert(0, str(HERE.parent / "src"))
 from conf.config import Config, load_settings  # noqa: E402
 from service.vision import ACCEPTED, MeterReader  # noqa: E402
 from service.vision.prompt import PROMPT_VERSION  # noqa: E402
-
-TRIAL = HERE.parent.parent / "trial" / "outputs"
 
 
 def to_value(display):
@@ -63,8 +62,8 @@ def outcome_of(truth_kind, truth, res):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--review", default=str(TRIAL.parent / "review.csv"))
-    ap.add_argument("--images", default=str(TRIAL / "review_images"))
+    ap.add_argument("--review", required=True, help="hand-review CSV (image_id, truth_kind, truth_display)")
+    ap.add_argument("--images", required=True, help="folder of the photos, named <image_id>.jpg")
     ap.add_argument("--out", default=str(HERE.parent / "data" / "evaluation.jsonl"))
     ap.add_argument("--limit", type=int)
     ap.add_argument("--reads", type=int)
@@ -91,7 +90,7 @@ def main():
     todo = [r for r in rows if r["image_id"] not in done]
     print(f"{len(todo)} photos to read ({len(rows) - len(todo)} already done) x {settings.reads} read(s) "
           f"with {settings.model}: " + (f"about ${len(todo) * settings.reads * 0.023:.2f}" if settings.provider == "openai"
-                                        else "cost per photo not yet measured (GPT-6 Sol: about $0.023)"))
+                                        else f"about ${len(todo) * settings.reads * 0.014:.2f} with Claude"))
     if not args.yes:
         sys.exit("Add --yes to run it.")
     reader = MeterReader(settings)

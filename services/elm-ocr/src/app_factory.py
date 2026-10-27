@@ -1,8 +1,9 @@
 """
 Builds the FastAPI app. routes.py calls create_app() for gunicorn/uvicorn; tests call it with a fake reader.
 
-Every response uses FlowVision's envelope ({id, ts, responseCode, statusCode, result | error}), errors included:
-authentication, validation, unknown paths and unexpected failures. The HTTP status equals `statusCode`, so load
+Every API response uses FlowVision's envelope ({id, ts, responseCode, statusCode, result | error}), errors included:
+authentication, validation, unknown paths and unexpected failures (/, /health, /ready and the photo download answer
+plainly). The HTTP status equals `statusCode`, so load
 balancers and alarms see failures; METER_ERRORS_AS_HTTP_200=true restores FlowVision's HTTP-200-for-everything.
 """
 import asyncio
@@ -312,7 +313,7 @@ def create_app(config: Config | None = None, reader: MeterReader | None = None, 
                   str(exc)[:300])
         return error_reply(500, ErrorCode.INTERNAL_ERROR, "Internal error.", retryable=True)
 
-    # ---- health (no authentication, no thread pool: they answer even when every read slot is busy) ----
+    # ---- health (no authentication, not the read thread pool: they answer even when every read slot is busy) ----
     @app.get("/")
     async def root():
         return {"message": "Hi, I am the electricity meter reading assistant.", "model": reader.settings.model}
