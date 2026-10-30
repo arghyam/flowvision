@@ -9,3 +9,10 @@ venv
 **/__pycache__
 **/*.pyc
 logs
+
+# Working documents (personal data) and tests: not part of the image
+docs
+tests
+
+# Developer script (scripts/try_photos.py): not part of the service
+scripts

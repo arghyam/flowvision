@@ -5,3 +5,7 @@ src/data/**/*.png
 
 # Training checkpoint files — large, not needed in git
 training/*/models/*.pth
+
+# Working documents (production readings with names and phone numbers): never in git
+docs/*.xlsx
+docs/*.pdf

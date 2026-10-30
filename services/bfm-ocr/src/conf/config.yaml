@@ -29,6 +29,21 @@ models:
   bfm_classification: "src/models/bfm_fastai_v2"
   individual_numbers: "src/models/individual_number_recognition_yolo11l.pt"
   color_classification: "src/models/color_classification_fastai_v2"
+  # Tells how far a photo is rotated (0/90/180/270) so it is turned upright before
+  # the quality check and the digit model. "" disables it (photos read as taken).
+  orientation: "src/models/orientation_yolo11n_cls.pt"
+
+# The orientation model must be at least this sure before a photo is turned.
+# 0.9 is the setting the rotated-photo measurements used.
+# Switch turning off at deploy time (no rebuild needed) with FLOWVISION_ORIENTATION=off.
+orientation_min_confidence: 0.9
+
+# Read only the meter's counter row: digits on one straight line with the same
+# height and a regular pitch. Dial numbers, scale-ring numbers, the 'H' label and
+# serial numbers are left out. When no row of 3 or more digits is found the photo
+# is read as before (every digit, left to right).
+# Switch off at deploy time (no rebuild needed) with FLOWVISION_COUNTER_ROW_ONLY=false.
+counter_row_only: true
 
 # Minimum P(good) required to classify an image as good quality.
 # Images below this threshold are classified as bad and returned as UNCLEAR.

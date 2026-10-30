@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from conf.config import Config
+from service.vision.counter import select_row
+from service.vision.orientation import OrientationModel
+from service.vision.types import Det
 import logging
 
 # Load configuration
@@ -80,6 +83,27 @@ def load_color_classification_model(model_path=None):
     learn = load_learner(model_path)
     return learn
 
+#Load the orientation model
+def load_orientation_model(model_path=None):
+    """
+    Load the orientation model (a small yolo11n classifier) that tells how far a
+    photo is rotated, so it can be turned upright before anything else looks at it.
+
+    Returns None when models.orientation is empty, FLOWVISION_ORIENTATION is off,
+    or the model cannot be loaded (logged as an error): photos are then read as
+    taken, as before, and the service still starts.
+    """
+    if model_path is None:
+        model_path = CONFIG['models'].get('orientation')
+    if not model_path or not orientation_enabled():
+        return None
+    try:
+        return OrientationModel(model_path, CONFIG.get('orientation_min_confidence', 0.9))
+    except Exception:
+        base_logger.error("Orientation model %s could not be loaded; photos will be read as taken",
+                          model_path, exc_info=True)
+        return None
+
 
 def get_quality_threshold():
     """
@@ -142,6 +166,37 @@ def get_digit_padding_color():
             "falling back to config value %s", env_value, config_default)
         return config_default
     return padding
+
+
+def _switch(env_name, config_key, default=True):
+    """
+    An on/off setting: the env var (true/false, on/off, 1/0) wins over config.yaml,
+    so ops can switch a fix off at deploy time (set the variable and restart the
+    container) without rebuilding the image. Read on each call. An env value that
+    is not recognised is ignored with a warning and the config value is used.
+    """
+    config_default = bool(CONFIG.get(config_key, default))
+    env_value = os.environ.get(env_name)
+    if env_value is None:
+        return config_default
+    value = env_value.strip().lower()
+    if value in ('true', 'on', '1', 'yes'):
+        return True
+    if value in ('false', 'off', '0', 'no'):
+        return False
+    base_logger.warning("Invalid %s=%r (expected true or false); falling back to config value %s",
+                        env_name, env_value, config_default)
+    return config_default
+
+
+def counter_row_only():
+    """Read only the meter's counter row (FLOWVISION_COUNTER_ROW_ONLY > config.yaml counter_row_only > on)."""
+    return _switch('FLOWVISION_COUNTER_ROW_ONLY', 'counter_row_only')
+
+
+def orientation_enabled():
+    """Turn rotated photos upright (FLOWVISION_ORIENTATION > on; models.orientation "" also disables it)."""
+    return _switch('FLOWVISION_ORIENTATION', 'orientation_enabled')
 
 
 def classify_bfm_image(img, model=None, threshold=None):
@@ -255,6 +310,47 @@ def enhance_image(image):
     enhanced_image = cv2.convertScaleAbs(enhanced, alpha=color_alpha, beta=color_beta)
     
     return enhanced_image
+
+# How to undo each rotation the orientation model reports (how far the photo is turned clockwise).
+UNDO_ROTATION = {90: cv2.ROTATE_90_COUNTERCLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_CLOCKWISE}
+
+
+def turn_upright(image_bytes, model=None):
+    """
+    Turn a sideways or upside-down photo upright before anything else looks at it.
+
+    The digit model only reads upright meters (upside down it reads the drums in
+    reverse with 6 and 9 swapped), and the quality model rates almost every rotated
+    photo bad (median P(good) 0.000 against 0.999 for upright ones, 1,061 rotated
+    production photos of 14 Sep 2026). So this runs first and the quality check,
+    the digit model and the colour check all see the upright photo.
+
+    Args:
+        image_bytes: The photo as encoded bytes (the PNG from download_image)
+        model: The loaded OrientationModel, or None (photos are read as taken)
+
+    Returns:
+        (image_bytes, angle, confidence): the upright photo as PNG bytes when it was
+        turned, else the bytes unchanged; angle is how far it was turned back (0, 90,
+        180 or 270). Any failure leaves the photo as taken.
+    """
+    if model is None or not orientation_enabled():
+        return image_bytes, 0, None
+    try:
+        image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            return image_bytes, 0, None
+        angle, confidence = model.predict(image)
+        if angle not in UNDO_ROTATION:
+            return image_bytes, 0, confidence
+        ok, buffer = cv2.imencode('.png', cv2.rotate(image, UNDO_ROTATION[angle]))
+        if not ok:
+            return image_bytes, 0, confidence
+        return buffer.tobytes(), angle, confidence
+    except Exception:
+        base_logger.warning("Orientation check failed; reading the photo as taken", exc_info=True)
+        return image_bytes, 0, None
+
 
 def test_image_prediction(image_path=None):
     """
@@ -394,6 +490,53 @@ def remove_overlapping_boxes(boxes, classes, confidences, iou_threshold=0.5):
 
     return filtered_boxes, filtered_classes, filtered_confidences, rollover_pairs
 
+
+def keep_counter_row(boxes, classes, confidences, rollover_pairs):
+    """
+    Keep only the meter's counter drums, in reading order.
+
+    A bulk meter photo shows more digits than the counter: the x0.1/x0.01 dial
+    numbers, scale-ring numbers, the 'H' label, bolt stamps and the meter's serial
+    number. Joining every digit left to right put those into the reading (e.g. a
+    meter ID read as 20,224,404,265). The drums are the digits on one straight line
+    (at any tilt) with the same height and a regular pitch (counter.select_row).
+    Two boxes on one drum (a drum half-way between two digits) are one position:
+    the more confident digit is read and the other is reported as its rollover
+    alternate, as remove_overlapping_boxes does for overlapping boxes.
+
+    Args:
+        boxes, classes, confidences: The boxes kept by remove_overlapping_boxes
+        rollover_pairs: Its (winner_box, winner_class, winner_conf, loser_class, loser_conf)
+
+    Returns:
+        (boxes, classes, rollover_positions) along the counter, or None when no row
+        of 3 or more digits is found (the caller then reads the photo as before).
+    """
+    dets = [Det.from_polygon(box, cls, conf) for box, cls, conf in zip(boxes, classes, confidences)]
+    read = select_row(dets, CONFIG)
+    if read is None:
+        return None
+    index = {id(det): i for i, det in enumerate(dets)}
+    row = [index[id(drum.det)] for drum in read.drums]
+    overlapped = {id(winner_box): (loser_class, loser_conf)
+                  for winner_box, _, _, loser_class, loser_conf in rollover_pairs}
+
+    rollover_positions = []
+    for position, (i, drum) in enumerate(zip(row, read.drums), start=1):
+        alternate = overlapped.get(id(boxes[i]))
+        if alternate is None and drum.alternate is not None:
+            alternate = (drum.alternate.value, drum.alternate.conf)
+        if alternate is not None:
+            rollover_positions.append({
+                'position': position,
+                'selectedDigit': {'value': int(classes[i]), 'confidence': float(confidences[i])},
+                'alternateDigit': {'value': int(alternate[0]), 'confidence': float(alternate[1])}
+            })
+    # same order as before: most confident drum first (the order remove_overlapping_boxes found them)
+    rollover_positions.sort(key=lambda rp: -rp['selectedDigit']['confidence'])
+    return [boxes[i] for i in row], [classes[i] for i in row], rollover_positions
+
+
 class RecognitionOutcome(StrEnum):
     """
     Why digit recognition ended the way it did.
@@ -505,21 +648,27 @@ def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
             detail="No digits detected in the image"
         )
 
-    sorted_boxes, sorted_classes, sorted_confidences = sort_boxes_by_position(
-        digit_boxes, digit_classes, digit_confidences
-    )
+    # Only the counter drums (no dial, scale-ring or serial-number digits), in reading order
+    counter = keep_counter_row(digit_boxes, digit_classes, digit_confidences, rollover_pairs) \
+        if counter_row_only() else None
+    if counter is not None:
+        sorted_boxes, sorted_classes, rollover_positions = counter
+    else:
+        sorted_boxes, sorted_classes, sorted_confidences = sort_boxes_by_position(
+            digit_boxes, digit_classes, digit_confidences
+        )
 
-    # Step 6: Map rollover pairs to their 1-indexed position in sorted order
-    rollover_positions = []
-    for winner_box, winner_class, winner_conf, loser_class, loser_conf in rollover_pairs:
-        for i, box in enumerate(sorted_boxes):
-            if np.array_equal(box, winner_box):
-                rollover_positions.append({
-                    'position': i + 1,
-                    'selectedDigit': {'value': winner_class, 'confidence': winner_conf},
-                    'alternateDigit': {'value': loser_class, 'confidence': loser_conf}
-                })
-                break
+        # Step 6: Map rollover pairs to their 1-indexed position in sorted order
+        rollover_positions = []
+        for winner_box, winner_class, winner_conf, loser_class, loser_conf in rollover_pairs:
+            for i, box in enumerate(sorted_boxes):
+                if np.array_equal(box, winner_box):
+                    rollover_positions.append({
+                        'position': i + 1,
+                        'selectedDigit': {'value': winner_class, 'confidence': winner_conf},
+                        'alternateDigit': {'value': loser_class, 'confidence': loser_conf}
+                    })
+                    break
 
     # Step 7: Extract the class labels and join them to form the digit sequence
     meter_reading = ''.join([str(cls) for cls in sorted_classes])

@@ -21,6 +21,8 @@ from service.vision.inference_utils import (
     load_bfm_classification,
     load_individual_numbers_model,
     load_color_classification_model,
+    load_orientation_model,
+    turn_upright,
     classify_bfm_image,
     direct_recognize_meter_reading,
     classify_color_image,
@@ -48,6 +50,7 @@ class ImageService:
         self.bfm_classification_model = load_bfm_classification()
         self.individual_numbers_model = load_individual_numbers_model()
         self.color_classification_model = load_color_classification_model()
+        self.orientation_model = load_orientation_model()
 
 
     def download_image(self, imageURL):
@@ -68,6 +71,13 @@ class ImageService:
             start_time = datetime.now()
             self.extraction_logger.info(str(request.model_dump_json()))
             original_image = self.download_image(request.imageURL)
+
+            # A sideways or upside-down photo is turned upright first: the quality
+            # check, the digit model and the colour check below all see it upright
+            original_image, angle, angle_confidence = turn_upright(original_image, self.orientation_model)
+            if angle:
+                self.extraction_logger.info("Request %s: photo turned upright by %s degrees (confidence %.2f)",
+                                            request.id, angle, angle_confidence)
 
             # Get quality status from BFM classification
             quality_result = classify_bfm_image(original_image, model=self.bfm_classification_model)
