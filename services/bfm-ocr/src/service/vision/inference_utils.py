@@ -15,6 +15,8 @@ from enum import StrEnum
 
 from conf.config import Config
 from service.vision.counter import select_row
+from service.vision.decimal_drum import read_last_drum
+from service.vision.drums import DrumColourModel
 from service.vision.orientation import OrientationModel
 from service.vision.types import Det
 import logging
@@ -168,6 +170,27 @@ def get_digit_padding_color():
     return padding
 
 
+#Load the drum colour model
+def load_drum_colour_model(model_path=None):
+    """
+    Load the small model that tells whether a counter drum is red (the decimal drum).
+
+    Returns None when models.drum_colour is empty, FLOWVISION_DECIMAL_DRUM is off,
+    or the model cannot be loaded (logged as an error): the last digit's colour then
+    comes from the fastai classifier, as before, and the service still starts.
+    """
+    if model_path is None:
+        model_path = CONFIG['models'].get('drum_colour')
+    if not model_path or not decimal_drum_enabled():
+        return None
+    try:
+        return DrumColourModel(model_path)
+    except Exception:
+        base_logger.error("Drum colour model %s could not be loaded; using the fastai colour classifier",
+                          model_path, exc_info=True)
+        return None
+
+
 def _switch(env_name, config_key, default=True):
     """
     An on/off setting: the env var (true/false, on/off, 1/0) wins over config.yaml,
@@ -197,6 +220,16 @@ def counter_row_only():
 def orientation_enabled():
     """Turn rotated photos upright (FLOWVISION_ORIENTATION > on; models.orientation "" also disables it)."""
     return _switch('FLOWVISION_ORIENTATION', 'orientation_enabled')
+
+
+def decimal_drum_enabled():
+    """Decide the decimal drum with the drum colour model (FLOWVISION_DECIMAL_DRUM > on)."""
+    return _switch('FLOWVISION_DECIMAL_DRUM', 'decimal_drum_enabled')
+
+
+def decimal_in_reading():
+    """Write the decimal point into meterReading (FLOWVISION_DECIMAL_IN_READING > config.yaml > off)."""
+    return _switch('FLOWVISION_DECIMAL_IN_READING', 'decimal_in_reading', default=False)
 
 
 def classify_bfm_image(img, model=None, threshold=None):
@@ -509,8 +542,9 @@ def keep_counter_row(boxes, classes, confidences, rollover_pairs):
         rollover_pairs: Its (winner_box, winner_class, winner_conf, loser_class, loser_conf)
 
     Returns:
-        (boxes, classes, rollover_positions) along the counter, or None when no row
-        of 3 or more digits is found (the caller then reads the photo as before).
+        (boxes, classes, rollover_positions, confidences) along the counter, or None
+        when no row of 3 or more digits is found (the caller then reads the photo as
+        before).
     """
     dets = [Det.from_polygon(box, cls, conf) for box, cls, conf in zip(boxes, classes, confidences)]
     read = select_row(dets, CONFIG)
@@ -534,7 +568,7 @@ def keep_counter_row(boxes, classes, confidences, rollover_pairs):
             })
     # same order as before: most confident drum first (the order remove_overlapping_boxes found them)
     rollover_positions.sort(key=lambda rp: -rp['selectedDigit']['confidence'])
-    return [boxes[i] for i in row], [classes[i] for i in row], rollover_positions
+    return [boxes[i] for i in row], [classes[i] for i in row], rollover_positions, [confidences[i] for i in row]
 
 
 class RecognitionOutcome(StrEnum):
@@ -564,6 +598,8 @@ class DigitRecognitionResult:
     classes: list = field(default_factory=list)
     rollover_positions: list = field(default_factory=list)
     detail: str | None = None
+    # Set when `boxes` are the counter drums in reading order (see keep_counter_row)
+    confidences: list | None = None
 
 
 def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
@@ -651,8 +687,9 @@ def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
     # Only the counter drums (no dial, scale-ring or serial-number digits), in reading order
     counter = keep_counter_row(digit_boxes, digit_classes, digit_confidences, rollover_pairs) \
         if counter_row_only() else None
+    counter_confidences = None
     if counter is not None:
-        sorted_boxes, sorted_classes, rollover_positions = counter
+        sorted_boxes, sorted_classes, rollover_positions, counter_confidences = counter
     else:
         sorted_boxes, sorted_classes, sorted_confidences = sort_boxes_by_position(
             digit_boxes, digit_classes, digit_confidences
@@ -678,8 +715,42 @@ def direct_recognize_meter_reading(image_path, individual_numbers_model=None):
         reading=meter_reading,
         boxes=sorted_boxes,
         classes=sorted_classes,
-        rollover_positions=rollover_positions
+        rollover_positions=rollover_positions,
+        confidences=counter_confidences
     )
+
+def settle_last_drum(recognition, image, model):
+    """
+    Decide the last digit's colour with the drum colour model, and drop boxes after
+    the red drum that are not drums (gear teeth, dial marks): they were read as an
+    extra digit and hid the red drum from the colour check.
+
+    Args:
+        recognition: The DigitRecognitionResult; updated when boxes are dropped
+        image: The upright photo as a BGR numpy array (true colours)
+        model: The loaded DrumColourModel, or None
+
+    Returns:
+        {'prediction', 'confidence'} like classify_color_image, or None when the
+        boxes are not a counter row, there is no model or it failed (the caller then
+        uses classify_color_image, as before).
+    """
+    if model is None or recognition.confidences is None or not decimal_drum_enabled():
+        return None
+    try:
+        drop, red, p_red = read_last_drum(image, recognition.boxes, recognition.confidences, model)
+    except Exception:
+        base_logger.warning("Drum colour check failed; using the fastai colour classifier", exc_info=True)
+        return None
+    if drop:
+        keep = len(recognition.boxes) - drop
+        recognition.boxes = recognition.boxes[:keep]
+        recognition.classes = recognition.classes[:keep]
+        recognition.confidences = recognition.confidences[:keep]
+        recognition.reading = ''.join(str(cls) for cls in recognition.classes)
+        recognition.rollover_positions = [rp for rp in recognition.rollover_positions if rp['position'] <= keep]
+    return {'prediction': 'red' if red else 'black', 'confidence': p_red if red else 1.0 - p_red}
+
 
 # Function to extract digit image from its bounding box
 def extract_digit_image(image, box, padding=None):

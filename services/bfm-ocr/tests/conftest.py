@@ -22,3 +22,11 @@ def annex_production_detections():
     """
     with open(FIXTURES / "annex_production_detections.json", encoding="utf-8") as f:
         return json.load(f)
+
+
+@pytest.fixture(scope="session")
+def annex_counter_drums():
+    """The counter drums of the hand-checked Annexure photos: photo, truth, reading, pts, confs and p_red (the drum
+    colour model's P(red)) per drum, in reading order. Detections and scores only: no photos."""
+    with open(FIXTURES / "annex_counter_drums.json", encoding="utf-8") as f:
+        return json.load(f)

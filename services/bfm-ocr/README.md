@@ -39,8 +39,35 @@ can be overridden the same way (see the [Dockerfile](Dockerfile)).
 | `FLOWVISION_DB_{HOST,PORT,NAME,USERNAME,PASSWORD}` | PostgreSQL connection |
 | `FLOWVISION_QUALITY_THRESHOLD` | Overrides `quality_threshold` in config (`0`–`1`) |
 | `FLOWVISION_DIGIT_PADDING` | Overrides `digit_padding_color` in config (`black` or `white`) |
+| `FLOWVISION_COUNTER_ROW_ONLY` | `false` reads every digit in the photo again, left to right (default on) |
+| `FLOWVISION_ORIENTATION` | `off` reads photos as taken, without turning them upright (default on) |
+| `FLOWVISION_DECIMAL_DRUM` | `off` goes back to the fastai colour classifier for the last digit (default on) |
+| `FLOWVISION_DECIMAL_IN_READING` | `true` writes the decimal point into `meterReading`; clients must then not place it again (default off) |
 
 `src/.env` is loaded at startup. Database schema: [flowvision_db_ddl.sql](flowvision_db_ddl.sql).
+
+## How a photo is read
+
+1. A small orientation model turns a sideways or upside-down photo upright (`models.orientation`).
+2. The quality check rates the upright photo. A bad photo returns `UNCLEAR`.
+3. The digit model finds the digits, and only the meter's counter row is kept (`counter_row_only`).
+4. A small drum colour model (`models.drum_colour`) tells whether the last drum is red, the decimal digit, and sets
+   `lastDigitColor`. Only a row left with 7 drums is trimmed: a box after the red seventh drum that is off the drum
+   pitch or weak (gear teeth, a dial mark) is dropped.
+
+If the orientation model is under 90% sure, the photo is read as taken. If no counter row of 3 or more digits is
+found, every digit is read left to right and the fastai classifier checks the last digit's colour. The API is the
+same in every case. By default `meterReading` is the raw digits and `lastDigitColor` says whether the last digit is the
+decimal. With `FLOWVISION_DECIMAL_IN_READING=true` the service writes the point itself when the drum colour model finds a
+red last drum: see "Decimal point" in [api-reference.md](../../api-reference.md).
+
+## Tests
+
+```bash
+pip install pytest
+python -m pytest tests -q
+python scripts/try_photos.py /path/to/photos   # each photo with the fixes off and on
+```
 
 ## Dependencies
 
@@ -58,6 +85,7 @@ can be overridden the same way (see the [Dockerfile](Dockerfile)).
 ```bash
 python training/quality/finetune_bfm.py     # quality (good/bad) classifier
 python training/color/finetune_color.py     # last-digit colour classifier
+python training/orientation/train_orientation.py --photos DIR --out DIR   # orientation classifier
 ```
 
 To deploy a fine-tuned model, point `models.bfm_classification` or

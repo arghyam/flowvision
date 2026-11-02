@@ -85,10 +85,10 @@ Extracts a meter reading from an image hosted at a given URL.
 
 | Field                                       | Type              | Description                                                                                                                                     |
 | ------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `meterReading`                              | `string`          | Raw digit string extracted from the meter (e.g. `"96733"`), when `status` is `SUCCESS`. No decimal adjustment is applied — the downstream system interprets fractional digits based on `lastDigitColor`. For non-`SUCCESS` statuses it carries a placeholder instead of a reading — see the note below. |
+| `meterReading`                              | `string`          | Digit string extracted from the meter (e.g. `"96733"`), when `status` is `SUCCESS`. Always a string; leading zeros are kept. By default no decimal adjustment is applied, and the downstream system interprets fractional digits based on `lastDigitColor`. With `FLOWVISION_DECIMAL_IN_READING=true` the service writes the decimal point itself (e.g. `"012644.8"`): see [Decimal point](#decimal-point). For non-`SUCCESS` statuses it carries a placeholder instead of a reading — see the note below. |
 | `hasRollover`                               | `boolean`         | `true` if one or more digit wheels were detected mid-rotation (between two digit positions).                                                    |
 | `rolloverPositions`                         | `array` \| absent | Present only when `hasRollover` is `true`. Each entry describes one rollover position. Omitted from response when there is no rollover.         |
-| `rolloverPositions[].position`              | `integer`         | 1-indexed position of the rollover digit in the reading, counted left to right.                                                                 |
+| `rolloverPositions[].position`              | `integer`         | 1-indexed position of the rollover digit in the reading, counted left to right. Digits only: a decimal point in `meterReading` is not counted.                                                                 |
 | `rolloverPositions[].selectedDigit.value`   | `integer`         | The digit value chosen by the model (highest-confidence detection at this position).                                                            |
 | `rolloverPositions[].selectedDigit.confidence` | `float`        | Model confidence for the selected digit (`0.0` – `1.0`).                                                                                       |
 | `rolloverPositions[].alternateDigit.value`  | `integer`         | The next-best digit candidate at this position.                                                                                                 |
@@ -108,6 +108,22 @@ Extracts a meter reading from an image hosted at a given URL.
 > | `UNCLEAR` | `"Image quality too poor for recognition"`  |
 >
 > Clients must branch on `status` and must not attempt to parse `meterReading` unless `status` is `SUCCESS`.
+
+#### Decimal point
+
+A red last digit wheel is the digit after the decimal point. The `FLOWVISION_DECIMAL_IN_READING` setting (`decimal_in_reading` in `config.yaml`, off by default) decides who places the point. The fields and statuses are the same either way.
+
+| Setting | `meterReading` for 12644.8 | Who places the point |
+| --- | --- | --- |
+| Off (default) | `"0126448"` | The client, from `lastDigitColor` |
+| On | `"012644.8"` | The service. The client must not place it again |
+
+With the setting on:
+
+- The point is written only when the service's drum colour check finds the last digit red on the meter's counter row. A trailing `.0` is kept (`"023176.0"`).
+- A black last digit returns digits only (`"0268045"`), which is a whole-number reading.
+- In the rare case that no counter row is found, the reading is digits only, even if `lastDigitColor` is `"red"`. Use `meterReading` as returned, and do not add a point from `lastDigitColor`.
+- `rolloverPositions[].position` counts digits, not the `.` character. In `"030701.1"`, position 7 is the final `1`.
 
 **Example — successful reading with rollover**
 ```json
