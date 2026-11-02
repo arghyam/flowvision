@@ -51,8 +51,10 @@ counter_row_only: true
 
 # false: meterReading is the raw digit string and lastDigitColor says red when the last
 # digit is the decimal digit, so the client places the point (api-reference.md).
-# true: meterReading itself holds the point ("012644.8"): the client must then not place
-# it again. Override at deploy time with FLOWVISION_DECIMAL_IN_READING=true.
+# true: meterReading itself holds the point ("012644.8") and the response adds
+# decimalInReading: true, so the client does not place it again. The service refuses to
+# start if it cannot write the point (no drum colour model, or counter_row_only off).
+# Override at deploy time with FLOWVISION_DECIMAL_IN_READING=true.
 decimal_in_reading: false
 
 # Minimum P(good) required to classify an image as good quality.

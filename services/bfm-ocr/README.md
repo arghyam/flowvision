@@ -42,7 +42,7 @@ can be overridden the same way (see the [Dockerfile](Dockerfile)).
 | `FLOWVISION_COUNTER_ROW_ONLY` | `false` reads every digit in the photo again, left to right (default on) |
 | `FLOWVISION_ORIENTATION` | `off` reads photos as taken, without turning them upright (default on) |
 | `FLOWVISION_DECIMAL_DRUM` | `off` goes back to the fastai colour classifier for the last digit (default on) |
-| `FLOWVISION_DECIMAL_IN_READING` | `true` writes the decimal point into `meterReading`; clients must then not place it again (default off) |
+| `FLOWVISION_DECIMAL_IN_READING` | `true` writes the decimal point into `meterReading` and adds `decimalInReading: true` to the response; clients must then not place it again (default off). The service refuses to start if it could not write the point: see below |
 
 `src/.env` is loaded at startup. Database schema: [flowvision_db_ddl.sql](flowvision_db_ddl.sql).
 
@@ -59,7 +59,15 @@ If the orientation model is under 90% sure, the photo is read as taken. If no co
 found, every digit is read left to right and the fastai classifier checks the last digit's colour. The API is the
 same in every case. By default `meterReading` is the raw digits and `lastDigitColor` says whether the last digit is the
 decimal. With `FLOWVISION_DECIMAL_IN_READING=true` the service writes the point itself when the drum colour model finds a
-red last drum: see "Decimal point" in [api-reference.md](../../api-reference.md).
+red last drum, and every response carries `decimalInReading: true`: see "Decimal point" in
+[api-reference.md](../../api-reference.md).
+
+With that setting on, the service does not start unless it can write the point. `FLOWVISION_DECIMAL_DRUM=off`,
+`FLOWVISION_COUNTER_ROW_ONLY=false`, an empty `models.drum_colour` or a drum colour model that fails to load stops startup
+with an error naming the cause.
+Each worker runs this check when it starts, and one worker failing stops the service. To go back, set
+`FLOWVISION_DECIMAL_IN_READING=false` first, or together with those switches. Clients must read `decimalInReading` before
+the setting is turned on: one that does not places a second point.
 
 ## Tests
 

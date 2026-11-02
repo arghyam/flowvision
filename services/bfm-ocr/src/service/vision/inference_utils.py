@@ -177,7 +177,8 @@ def load_drum_colour_model(model_path=None):
 
     Returns None when models.drum_colour is empty, FLOWVISION_DECIMAL_DRUM is off,
     or the model cannot be loaded (logged as an error): the last digit's colour then
-    comes from the fastai classifier, as before, and the service still starts.
+    comes from the fastai classifier, as before, and the service still starts, unless
+    FLOWVISION_DECIMAL_IN_READING is on (see check_decimal_setup).
     """
     if model_path is None:
         model_path = CONFIG['models'].get('drum_colour')
@@ -186,8 +187,7 @@ def load_drum_colour_model(model_path=None):
     try:
         return DrumColourModel(model_path)
     except Exception:
-        base_logger.error("Drum colour model %s could not be loaded; using the fastai colour classifier",
-                          model_path, exc_info=True)
+        base_logger.error("Drum colour model %s could not be loaded", model_path, exc_info=True)
         return None
 
 
@@ -230,6 +230,25 @@ def decimal_drum_enabled():
 def decimal_in_reading():
     """Write the decimal point into meterReading (FLOWVISION_DECIMAL_IN_READING > config.yaml > off)."""
     return _switch('FLOWVISION_DECIMAL_IN_READING', 'decimal_in_reading', default=False)
+
+
+def check_decimal_setup(drum_colour_model):
+    """
+    Refuse to start when FLOWVISION_DECIMAL_IN_READING is on but the service could
+    not write the point: clients stop placing it, so readings would lose the decimal.
+    """
+    if not decimal_in_reading():
+        return
+    problems = []
+    if drum_colour_model is None:
+        problems.append("the drum colour model is not loaded (FLOWVISION_DECIMAL_DRUM off, "
+                        "models.drum_colour empty, or the model failed to load)")
+    if not counter_row_only():
+        problems.append("FLOWVISION_COUNTER_ROW_ONLY is off")
+    if problems:
+        message = "FLOWVISION_DECIMAL_IN_READING is on but the decimal point cannot be written: " + "; ".join(problems)
+        base_logger.error(message)
+        raise RuntimeError(message)
 
 
 def classify_bfm_image(img, model=None, threshold=None):
@@ -740,7 +759,9 @@ def settle_last_drum(recognition, image, model):
     try:
         drop, red, p_red = read_last_drum(image, recognition.boxes, recognition.confidences, model)
     except Exception:
-        base_logger.warning("Drum colour check failed; using the fastai colour classifier", exc_info=True)
+        # With the service placing the point, a red drum on this photo loses it: that must stand out in the logs
+        log = base_logger.error if decimal_in_reading() else base_logger.warning
+        log("Drum colour check failed; using the fastai colour classifier", exc_info=True)
         return None
     if drop:
         keep = len(recognition.boxes) - drop

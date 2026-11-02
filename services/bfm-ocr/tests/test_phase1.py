@@ -1,5 +1,6 @@
 """Phase 1 fixes: only the meter's counter row is read, and a rotated photo is turned upright before the quality
 check and the digit model. Everything else (API, statuses, fields) behaves as before."""
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -437,9 +438,113 @@ def test_the_drum_model_decides_the_colour_and_the_reading_stays_raw_digits(deci
 def test_decimal_in_reading_writes_the_point_only_on_a_red_last_drum(decimal_service, monkeypatch):
     monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
     result = read(decimal_service)
-    assert result["data"]["meterReading"] == "030701.1" and set(result["data"]) == V1_DATA_FIELDS
+    assert result["data"]["meterReading"] == "030701.1" and result["data"]["decimalInReading"] is True
+    assert set(result["data"]) == V1_DATA_FIELDS | {"decimalInReading"}
     decimal_service.drum_colour_model = FakeColour([0.01] * 7)
-    assert read(decimal_service)["data"]["meterReading"] == "0307011"
+    data = read(decimal_service)["data"]
+    assert data["meterReading"] == "0307011" and data["lastDigitColor"] == "black" and data["decimalInReading"] is True
+
+
+def test_decimal_in_reading_field_is_absent_with_the_flag_off(decimal_service, monkeypatch):
+    assert "decimalInReading" not in read(decimal_service)["data"]
+    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "false")
+    assert "decimalInReading" not in read(decimal_service)["data"]
+
+
+def test_decimal_in_reading_field_on_a_reading_rejected_for_quality(decimal_service, monkeypatch):
+    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
+    monkeypatch.setattr(image_service, "classify_bfm_image", lambda image, model=None: {"prediction": "bad",
+                                                                                        "confidence": 0.9})
+    result = read(decimal_service)
+    assert result["status"] == "UNCLEAR" and result["data"]["decimalInReading"] is True
+    assert result["data"]["meterReading"] == image_service.UNCLEAR_READING
+
+
+def test_decimal_in_reading_field_on_a_photo_with_no_digits(decimal_service, monkeypatch):
+    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
+    monkeypatch.setattr(image_service, "direct_recognize_meter_reading", lambda array, model=None: iu.DigitRecognitionResult(
+        outcome=iu.RecognitionOutcome.NO_DIGITS, detail="No digits detected in the image"))
+    result = read(decimal_service)
+    assert result["status"] == "NOMETER" and result["data"]["decimalInReading"] is True
+    assert result["data"]["meterReading"] == image_service.NO_METER_READING
+
+
+def test_what_clients_receive_over_http_has_the_field_only_with_the_flag_on(decimal_service, monkeypatch):
+    import routes
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(routes, "flow_vision_service", decimal_service)
+    client = TestClient(routes.app)
+
+    def data(base):
+        return client.post(f"{base}/extract-reading", json={"imageURL": "https://example.org/m.jpg"}).json()["result"]["data"]
+
+    for base in ("/flowvision/v1/bfm", "/flowvision/v1"):
+        assert "decimalInReading" not in data(base)
+    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
+    for base in ("/flowvision/v1/bfm", "/flowvision/v1"):
+        assert data(base)["decimalInReading"] is True
+
+
+def test_the_service_itself_refuses_to_start_without_the_drum_model(service, monkeypatch):
+    from conf.config import Config
+
+    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
+    monkeypatch.setattr(image_service, "load_drum_colour_model", lambda: None)
+    with pytest.raises(RuntimeError, match="drum colour model"):
+        image_service.ImageService(Config())
+    drum_model = FakeColour([0.9])
+    monkeypatch.setattr(image_service, "load_drum_colour_model", lambda: drum_model)
+    assert image_service.ImageService(Config()).drum_colour_model is drum_model
+
+
+def test_a_refused_start_is_logged_as_an_error(monkeypatch, caplog):
+    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError):
+        iu.check_decimal_setup(None)
+    assert any(r.levelno == logging.ERROR and "cannot be written" in r.getMessage() for r in caplog.records)
+
+
+def test_a_failed_drum_check_is_an_error_only_when_the_service_places_the_point(monkeypatch, caplog):
+    def level():
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            assert iu.settle_last_drum(recognised(), np.zeros((200, 400, 3), np.uint8), FakeColour(fail=True)) is None
+        return [r.levelno for r in caplog.records if "Drum colour check failed" in r.getMessage()]
+
+    assert level() == [logging.WARNING]
+    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
+    assert level() == [logging.ERROR]
+
+
+def test_startup_is_refused_when_the_point_cannot_be_written(monkeypatch):
+    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
+    with pytest.raises(RuntimeError, match="drum colour model"):
+        iu.check_decimal_setup(None)
+    monkeypatch.setenv("FLOWVISION_COUNTER_ROW_ONLY", "false")
+    with pytest.raises(RuntimeError, match="FLOWVISION_COUNTER_ROW_ONLY"):
+        iu.check_decimal_setup(FakeColour([0.9]))
+    with pytest.raises(RuntimeError, match="drum colour model.*FLOWVISION_COUNTER_ROW_ONLY"):
+        iu.check_decimal_setup(None)
+
+
+def test_startup_is_refused_with_the_decimal_drum_switched_off(monkeypatch):
+    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
+    monkeypatch.setenv("FLOWVISION_DECIMAL_DRUM", "off")
+    with pytest.raises(RuntimeError, match="drum colour model"):
+        iu.check_decimal_setup(iu.load_drum_colour_model())
+
+
+def test_startup_is_refused_when_the_drum_model_cannot_be_loaded(monkeypatch, tmp_path):
+    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
+    with pytest.raises(RuntimeError, match="drum colour model"):
+        iu.check_decimal_setup(iu.load_drum_colour_model(str(tmp_path / "missing.pt")))
+
+
+def test_startup_check_passes_when_the_point_can_be_written(monkeypatch):
+    iu.check_decimal_setup(None)                                      # flag off: a missing drum model is fine
+    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
+    iu.check_decimal_setup(iu.load_drum_colour_model())               # the shipped model, default settings
 
 
 def test_a_dropped_stray_reaches_the_response(decimal_service, monkeypatch):
@@ -471,3 +576,4 @@ def test_the_point_is_never_written_on_the_old_colour_check(decimal_service, mon
     decimal_service.drum_colour_model = None
     data = read(decimal_service)["data"]
     assert data["meterReading"] == "0307011" and data["lastDigitColor"] == "red"
+    assert data["decimalInReading"] is True                           # red, no point: the client must not add one

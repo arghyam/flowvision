@@ -13,6 +13,14 @@ os.environ.setdefault("CONFIG_PATH", str(SERVICE / "src" / "conf" / "config.yaml
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def switches_start_at_their_defaults(monkeypatch):
+    """A switch exported in the shell (the flag is on in production) must not change what the tests see."""
+    for name in ("FLOWVISION_DECIMAL_IN_READING", "FLOWVISION_DECIMAL_DRUM", "FLOWVISION_COUNTER_ROW_ONLY",
+                 "FLOWVISION_ORIENTATION"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture(scope="session")
 def annex_production_detections():
     """The digit boxes the production model found on the 100 hand-checked Annexure photos, with the true reading.

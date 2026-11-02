@@ -26,6 +26,7 @@ from service.vision.inference_utils import (
     turn_upright,
     settle_last_drum,
     decimal_in_reading,
+    check_decimal_setup,
     classify_bfm_image,
     direct_recognize_meter_reading,
     classify_color_image,
@@ -55,6 +56,7 @@ class ImageService:
         self.color_classification_model = load_color_classification_model()
         self.orientation_model = load_orientation_model()
         self.drum_colour_model = load_drum_colour_model()
+        check_decimal_setup(self.drum_colour_model)
 
 
     def download_image(self, imageURL):
@@ -144,7 +146,8 @@ class ImageService:
 
             # Off by default: meterReading stays the raw digit string and lastDigitColor carries the decimal.
             # Only for a colour the drum model decided on a counter row: the point cannot be undone by the client.
-            if decimal_in_reading() and settled is not None and last_digit_color == 'red':
+            service_places_point = decimal_in_reading()
+            if service_places_point and settled is not None and last_digit_color == 'red':
                 meter_reading_str = f"{meter_reading_str[:-1]}.{meter_reading_str[-1]}"
 
             rollover_objs = [
@@ -167,7 +170,9 @@ class ImageService:
                     qualityStatus=quality_status,
                     qualityConfidence=quality_confidence,
                     lastDigitColor=last_digit_color,
-                    colorConfidence=color_confidence
+                    colorConfidence=color_confidence,
+                    # Left out with the flag off, so clients keep placing the point themselves
+                    decimalInReading=True if service_places_point else None
                 )
             )
             response = ReadingExtractionResponse(
