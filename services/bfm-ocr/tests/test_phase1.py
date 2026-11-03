@@ -1,6 +1,5 @@
 """Phase 1 fixes: only the meter's counter row is read, and a rotated photo is turned upright before the quality
 check and the digit model. Everything else (API, statuses, fields) behaves as before."""
-import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -204,7 +203,7 @@ V1_DATA_FIELDS = {"meterReading", "hasRollover", "processingTime", "qualityStatu
 def service(monkeypatch):
     monkeypatch.setattr(image_service, "MetadataStore", lambda config: SimpleNamespace(
         store_request=lambda *a: None, store_response=lambda *a: None, store_feedback=lambda *a: None))
-    for loader in ("load_bfm_classification", "load_individual_numbers_model", "load_color_classification_model"):
+    for loader in ("load_bfm_classification", "load_individual_numbers_model"):
         monkeypatch.setattr(image_service, loader, lambda: object())
     monkeypatch.setattr(image_service, "load_orientation_model", lambda: FakeOrientation(90))
     seen = {}
@@ -220,8 +219,7 @@ def service(monkeypatch):
 
     monkeypatch.setattr(image_service, "classify_bfm_image", quality)
     monkeypatch.setattr(image_service, "direct_recognize_meter_reading", recognise)
-    monkeypatch.setattr(image_service, "classify_color_image", lambda crop, model=None: {"prediction": "red",
-                                                                                        "confidence": 0.9})
+    monkeypatch.setattr(image_service, "load_drum_colour_model", lambda: FakeColour([0.99]))
     from conf.config import Config
     svc = image_service.ImageService(Config())
     svc.download_image = lambda url: png(300, 200)                 # arrives sideways: 300 wide, 200 high
@@ -336,10 +334,10 @@ def test_last_drum_colour_on_the_hand_checked_annexure(annex_counter_drums):
 
 class FakeColour:
     def __init__(self, p_red=None, fail=False):
-        self.p_red, self.fail, self.seen = p_red, fail, None
+        self.p_red, self.fail, self.seen, self.seen_dets = p_red, fail, None, None
 
     def red_probabilities(self, bgr, dets):
-        self.seen = bgr
+        self.seen, self.seen_dets = bgr, dets
         if self.fail:
             raise RuntimeError("model broke")
         return self.p_red
@@ -369,25 +367,31 @@ def test_a_black_last_drum_is_reported_black():
     assert result.reading == "03070115"
 
 
-@pytest.mark.parametrize("model, confidences", [(None, True), (FakeColour(fail=True), True),
-                                                (FakeColour([0.9] * 8), False)])
-def test_without_the_model_or_a_counter_row_the_old_colour_check_decides(model, confidences):
-    result = recognised(confidences=confidences)
-    assert iu.settle_last_drum(result, np.zeros((200, 400, 3), np.uint8), model) is None
-    assert result.reading == "03070115"
+# 0.4 is black: without a counter row there is no 7-drum row, so the fainter 7-drum threshold (0.3) does not apply
+@pytest.mark.parametrize("p_red, colour, confidence", [(0.9, "red", 0.9), (0.4, "black", 0.6), (0.2, "black", 0.8)])
+def test_without_a_counter_row_the_drum_model_scores_the_last_digit_and_drops_nothing(p_red, colour, confidence):
+    result = recognised(confidences=False)
+    model = FakeColour([p_red])
+    assert iu.settle_last_drum(result, np.zeros((200, 400, 3), np.uint8), model) == {
+        "prediction": colour, "confidence": pytest.approx(confidence)}
+    assert result.reading == "03070115" and len(model.seen_dets) == 1
+    assert np.allclose(model.seen_dets[0].pts, np.asarray(result.boxes[-1], dtype=float).reshape(-1, 2))
 
 
-def test_decimal_drum_switched_off(monkeypatch):
-    monkeypatch.setenv("FLOWVISION_DECIMAL_DRUM", "off")
-    assert iu.settle_last_drum(recognised(), np.zeros((200, 400, 3), np.uint8), FakeColour([0.9] * 8)) is None
-    assert iu.load_drum_colour_model() is None
+def test_a_failing_drum_check_is_not_hidden():
+    with pytest.raises(RuntimeError):
+        iu.settle_last_drum(recognised(), np.zeros((200, 400, 3), np.uint8), FakeColour(fail=True))
 
 
-def test_a_missing_or_broken_drum_model_does_not_stop_the_service(tmp_path):
-    assert iu.load_drum_colour_model(str(tmp_path / "missing.pt")) is None
+def test_a_missing_or_broken_drum_model_stops_the_service(tmp_path):
+    with pytest.raises(RuntimeError, match="could not be loaded"):
+        iu.load_drum_colour_model(str(tmp_path / "missing.pt"))
     broken = tmp_path / "broken.pt"
     broken.write_bytes(b"not a model")
-    assert iu.load_drum_colour_model(str(broken)) is None
+    with pytest.raises(RuntimeError, match="could not be loaded"):
+        iu.load_drum_colour_model(str(broken))
+    with pytest.raises(RuntimeError, match="empty"):
+        iu.load_drum_colour_model("")
 
 
 def test_the_shipped_drum_colour_model_loads_and_scores_a_drum():
@@ -408,7 +412,7 @@ def test_quality_and_digits_see_the_upright_photo_and_the_response_is_unchanged(
     assert set(body) == {"id", "ts", "responseCode", "statusCode", "result"}
     assert set(body["result"]) == {"status", "correlationId", "data"}
     assert body["result"]["status"] == "SUCCESS" and set(body["result"]["data"]) == V1_DATA_FIELDS
-    assert body["result"]["data"]["meterReading"] == "0307011" and body["result"]["data"]["lastDigitColor"] == "red"
+    assert body["result"]["data"]["meterReading"] == "030701.1" and body["result"]["data"]["lastDigitColor"] == "red"
 
 
 @pytest.fixture
@@ -418,8 +422,6 @@ def decimal_service(service, monkeypatch):
     monkeypatch.setattr(image_service, "direct_recognize_meter_reading", lambda array, model=None: iu.DigitRecognitionResult(
         outcome=iu.RecognitionOutcome.DIGITS_FOUND, reading="0307011", boxes=drums(7),
         classes=[0, 3, 0, 7, 0, 1, 1], rollover_positions=[], confidences=[0.9] * 7))
-    monkeypatch.setattr(image_service, "classify_color_image", lambda crop, model=None: {"prediction": "black",
-                                                                                         "confidence": 0.8})
     return svc
 
 
@@ -428,123 +430,76 @@ def read(svc):
                                ).model_dump(mode="json", exclude_none=True)["result"]
 
 
-def test_the_drum_model_decides_the_colour_and_the_reading_stays_raw_digits(decimal_service):
+def test_the_drum_model_decides_the_colour_and_the_service_writes_the_point(decimal_service):
     result = read(decimal_service)
-    assert set(result["data"]) == V1_DATA_FIELDS
-    assert result["data"]["meterReading"] == "0307011"                # the fastai classifier said black
+    assert set(result["data"]) == V1_DATA_FIELDS                      # the API is unchanged
+    assert result["data"]["meterReading"] == "030701.1"
     assert result["data"]["lastDigitColor"] == "red" and result["data"]["colorConfidence"] == 0.99
 
 
-def test_decimal_in_reading_writes_the_point_only_on_a_red_last_drum(decimal_service, monkeypatch):
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
-    result = read(decimal_service)
-    assert result["data"]["meterReading"] == "030701.1" and result["data"]["decimalInReading"] is True
-    assert set(result["data"]) == V1_DATA_FIELDS | {"decimalInReading"}
+def test_a_black_last_drum_gets_no_point(decimal_service):
     decimal_service.drum_colour_model = FakeColour([0.01] * 7)
     data = read(decimal_service)["data"]
-    assert data["meterReading"] == "0307011" and data["lastDigitColor"] == "black" and data["decimalInReading"] is True
+    assert data["meterReading"] == "0307011" and data["lastDigitColor"] == "black"
 
 
-def test_decimal_in_reading_field_is_absent_with_the_flag_off(decimal_service, monkeypatch):
-    assert "decimalInReading" not in read(decimal_service)["data"]
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "false")
-    assert "decimalInReading" not in read(decimal_service)["data"]
+def test_without_a_counter_row_the_point_follows_the_drum_model_on_the_last_digit(decimal_service, monkeypatch):
+    monkeypatch.setattr(image_service, "direct_recognize_meter_reading", lambda array, model=None: iu.DigitRecognitionResult(
+        outcome=iu.RecognitionOutcome.DIGITS_FOUND, reading="0307011", boxes=drums(7),
+        classes=[0, 3, 0, 7, 0, 1, 1], rollover_positions=[]))
+    decimal_service.drum_colour_model = FakeColour([0.99])
+    data = read(decimal_service)["data"]
+    assert data["meterReading"] == "030701.1" and data["lastDigitColor"] == "red"
+    decimal_service.drum_colour_model = FakeColour([0.1])
+    data = read(decimal_service)["data"]
+    assert data["meterReading"] == "0307011" and data["lastDigitColor"] == "black"
 
 
-def test_decimal_in_reading_field_on_a_reading_rejected_for_quality(decimal_service, monkeypatch):
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
-    monkeypatch.setattr(image_service, "classify_bfm_image", lambda image, model=None: {"prediction": "bad",
-                                                                                        "confidence": 0.9})
-    result = read(decimal_service)
-    assert result["status"] == "UNCLEAR" and result["data"]["decimalInReading"] is True
-    assert result["data"]["meterReading"] == image_service.UNCLEAR_READING
+def test_a_failing_drum_check_returns_the_error_response(decimal_service):
+    decimal_service.drum_colour_model = FakeColour(fail=True)
+    body = decimal_service.extract_reading(ReadingExtractionRequest(imageURL="https://example.org/meter.jpg"),
+                                           BackgroundTasks()).model_dump(mode="json", exclude_none=True)
+    assert body["responseCode"] == "ERROR" and body["statusCode"] == 500 and "result" not in body
 
 
-def test_decimal_in_reading_field_on_a_photo_with_no_digits(decimal_service, monkeypatch):
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
+def test_no_point_on_a_single_digit_or_on_a_message(decimal_service, monkeypatch):
+    decimal_service.drum_colour_model = FakeColour([0.99])
+    monkeypatch.setattr(image_service, "direct_recognize_meter_reading", lambda array, model=None: iu.DigitRecognitionResult(
+        outcome=iu.RecognitionOutcome.DIGITS_FOUND, reading="7", boxes=[box(30, 30)], classes=[7], rollover_positions=[]))
+    data = read(decimal_service)["data"]
+    assert data["meterReading"] == "7" and data["lastDigitColor"] == "red"
     monkeypatch.setattr(image_service, "direct_recognize_meter_reading", lambda array, model=None: iu.DigitRecognitionResult(
         outcome=iu.RecognitionOutcome.NO_DIGITS, detail="No digits detected in the image"))
     result = read(decimal_service)
-    assert result["status"] == "NOMETER" and result["data"]["decimalInReading"] is True
-    assert result["data"]["meterReading"] == image_service.NO_METER_READING
+    assert result["status"] == "NOMETER" and result["data"]["meterReading"] == image_service.NO_METER_READING
+    monkeypatch.setattr(image_service, "classify_bfm_image", lambda image, model=None: {"prediction": "bad",
+                                                                                        "confidence": 0.9})
+    result = read(decimal_service)
+    assert result["status"] == "UNCLEAR" and result["data"]["meterReading"] == image_service.UNCLEAR_READING
 
 
-def test_what_clients_receive_over_http_has_the_field_only_with_the_flag_on(decimal_service, monkeypatch):
+def test_what_clients_receive_over_http_is_the_api_as_before_with_the_point(decimal_service, monkeypatch):
     import routes
     from fastapi.testclient import TestClient
 
     monkeypatch.setattr(routes, "flow_vision_service", decimal_service)
     client = TestClient(routes.app)
-
-    def data(base):
-        return client.post(f"{base}/extract-reading", json={"imageURL": "https://example.org/m.jpg"}).json()["result"]["data"]
-
     for base in ("/flowvision/v1/bfm", "/flowvision/v1"):
-        assert "decimalInReading" not in data(base)
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
-    for base in ("/flowvision/v1/bfm", "/flowvision/v1"):
-        assert data(base)["decimalInReading"] is True
+        data = client.post(f"{base}/extract-reading", json={"imageURL": "https://example.org/m.jpg"}).json()["result"]["data"]
+        assert set(data) == V1_DATA_FIELDS and data["meterReading"] == "030701.1"
+    decimal_service.drum_colour_model = FakeColour(fail=True)
+    response = client.post("/flowvision/v1/bfm/extract-reading", json={"imageURL": "https://example.org/m.jpg"})
+    assert response.status_code == 200 and response.json()["responseCode"] == "ERROR"
+    assert response.json()["statusCode"] == 500 and "result" not in response.json()
 
 
-def test_the_service_itself_refuses_to_start_without_the_drum_model(service, monkeypatch):
+def test_the_service_does_not_start_without_the_drum_model(service, monkeypatch, tmp_path):
     from conf.config import Config
 
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
-    monkeypatch.setattr(image_service, "load_drum_colour_model", lambda: None)
-    with pytest.raises(RuntimeError, match="drum colour model"):
+    monkeypatch.setattr(image_service, "load_drum_colour_model",
+                        lambda: iu.load_drum_colour_model(str(tmp_path / "missing.pt")))
+    with pytest.raises(RuntimeError, match="could not be loaded"):
         image_service.ImageService(Config())
-    drum_model = FakeColour([0.9])
-    monkeypatch.setattr(image_service, "load_drum_colour_model", lambda: drum_model)
-    assert image_service.ImageService(Config()).drum_colour_model is drum_model
-
-
-def test_a_refused_start_is_logged_as_an_error(monkeypatch, caplog):
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
-    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError):
-        iu.check_decimal_setup(None)
-    assert any(r.levelno == logging.ERROR and "cannot be written" in r.getMessage() for r in caplog.records)
-
-
-def test_a_failed_drum_check_is_an_error_only_when_the_service_places_the_point(monkeypatch, caplog):
-    def level():
-        caplog.clear()
-        with caplog.at_level(logging.WARNING):
-            assert iu.settle_last_drum(recognised(), np.zeros((200, 400, 3), np.uint8), FakeColour(fail=True)) is None
-        return [r.levelno for r in caplog.records if "Drum colour check failed" in r.getMessage()]
-
-    assert level() == [logging.WARNING]
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
-    assert level() == [logging.ERROR]
-
-
-def test_startup_is_refused_when_the_point_cannot_be_written(monkeypatch):
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
-    with pytest.raises(RuntimeError, match="drum colour model"):
-        iu.check_decimal_setup(None)
-    monkeypatch.setenv("FLOWVISION_COUNTER_ROW_ONLY", "false")
-    with pytest.raises(RuntimeError, match="FLOWVISION_COUNTER_ROW_ONLY"):
-        iu.check_decimal_setup(FakeColour([0.9]))
-    with pytest.raises(RuntimeError, match="drum colour model.*FLOWVISION_COUNTER_ROW_ONLY"):
-        iu.check_decimal_setup(None)
-
-
-def test_startup_is_refused_with_the_decimal_drum_switched_off(monkeypatch):
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
-    monkeypatch.setenv("FLOWVISION_DECIMAL_DRUM", "off")
-    with pytest.raises(RuntimeError, match="drum colour model"):
-        iu.check_decimal_setup(iu.load_drum_colour_model())
-
-
-def test_startup_is_refused_when_the_drum_model_cannot_be_loaded(monkeypatch, tmp_path):
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
-    with pytest.raises(RuntimeError, match="drum colour model"):
-        iu.check_decimal_setup(iu.load_drum_colour_model(str(tmp_path / "missing.pt")))
-
-
-def test_startup_check_passes_when_the_point_can_be_written(monkeypatch):
-    iu.check_decimal_setup(None)                                      # flag off: a missing drum model is fine
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
-    iu.check_decimal_setup(iu.load_drum_colour_model())               # the shipped model, default settings
 
 
 def test_a_dropped_stray_reaches_the_response(decimal_service, monkeypatch):
@@ -558,7 +513,7 @@ def test_a_dropped_stray_reaches_the_response(decimal_service, monkeypatch):
         classes=[0, 3, 0, 7, 0, 1, 1, 5], rollover_positions=[keep, gone], confidences=[0.9] * 8))
     decimal_service.drum_colour_model = FakeColour([0.01] * 6 + [0.99, 0.02])
     data = read(decimal_service)["data"]
-    assert data["meterReading"] == "0307011" and data["lastDigitColor"] == "red"
+    assert data["meterReading"] == "030701.1" and data["lastDigitColor"] == "red"
     assert data["hasRollover"] is True and [rp["position"] for rp in data["rolloverPositions"]] == [7]
 
 
@@ -567,13 +522,3 @@ def test_the_colour_model_gets_the_upright_photo_in_true_colours(decimal_service
     assert decimal_service.drum_colour_model.seen.shape[:2] == (300, 200)
     assert np.array_equal(decimal_service.drum_colour_model.seen,
                           cv2.rotate(decode(png(300, 200)), cv2.ROTATE_90_COUNTERCLOCKWISE))
-
-
-def test_the_point_is_never_written_on_the_old_colour_check(decimal_service, monkeypatch):
-    monkeypatch.setenv("FLOWVISION_DECIMAL_IN_READING", "true")
-    monkeypatch.setattr(image_service, "classify_color_image", lambda crop, model=None: {"prediction": "red",
-                                                                                         "confidence": 0.8})
-    decimal_service.drum_colour_model = None
-    data = read(decimal_service)["data"]
-    assert data["meterReading"] == "0307011" and data["lastDigitColor"] == "red"
-    assert data["decimalInReading"] is True                           # red, no point: the client must not add one

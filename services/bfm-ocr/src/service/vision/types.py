@@ -1,4 +1,4 @@
-"""Shared types of the BFM reading pipeline: digit boxes, counter drums, the counter read and photo facts."""
+"""Shared types of the BFM reading pipeline: digit boxes, counter drums and the counter read."""
 import math
 from dataclasses import dataclass, field
 
@@ -102,14 +102,3 @@ class CounterRead:
         x, y, w, h = cv2.boundingRect(pts)
         p = int(pad * float(np.median([d.det.h for d in self.drums])))
         return max(x - p, 0), max(y - p, 0), w + 2 * p, h + 2 * p
-
-
-@dataclass
-class PhotoInfo:
-    sha1: str
-    width: int
-    height: int
-    quality_good: float | None = None
-    brightness: float = 0.0         # mean V (0-255)
-    blur: float = 0.0               # variance of the Laplacian (higher = sharper)
-    glare: float = 0.0              # share of near-saturated, colourless pixels on the counter area

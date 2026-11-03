@@ -75,7 +75,6 @@ class ReadingExtractionResultData(BaseModel):
   qualityConfidence: float
   lastDigitColor: str
   colorConfidence: float
-  decimalInReading: Optional[bool] = None
 
 
 

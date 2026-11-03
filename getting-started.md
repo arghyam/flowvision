@@ -133,9 +133,10 @@ Specify paths to pre-trained model files:
 
 ```markdown
 models:  
-    bfm_classification: "/path/to/src/models/bfm_fastai"  
+    bfm_classification: "/path/to/src/models/bfm_fastai_v2"  
     individual_numbers: "/path/to/src/models/individual_number_recognition_yolo11l.pt"  
-    color_classification: "/path/to/src/models/color_classification_fastai"
+    orientation: "/path/to/src/models/orientation_yolo11n_cls.pt"  
+    drum_colour: "/path/to/src/models/drum_colour_cnn.pt"
 ```
 
 #### Step 4: Environment Variables <a href="#step-4-environment-variables" id="step-4-environment-variables"></a>
@@ -162,12 +163,6 @@ DEBUG=true
 # Float in [0, 1]; higher = stricter (more images returned as UNCLEAR).
 FLOWVISION_QUALITY_THRESHOLD=0.65
 
-# Last-digit colour classification (optional)
-# Overrides digit_padding_color in config.yaml without a rebuild.
-# black | white — the fill colour for the corners of a tilted digit crop that
-# fall outside the detected digit polygon. Pair `black` with the v1 colour
-# model and `white` with the v2 (finetuned) colour model.
-FLOWVISION_DIGIT_PADDING=white
 ```
 
 ### Deployment <a href="#deployment" id="deployment"></a>
@@ -249,13 +244,6 @@ Verify your selected vision model loads correctly:
 # Check logs for model loading messages
 tail -f logs/api_logs/FlowVision.log
 
-# Test with sample image from config
-python -c "
-from src.conf.config import Config
-config = Config()
-print(f'Vision model: {config.vision_model}')
-print(f'Test image: {config.test.sample_image}')
-"
 ```
 
 ### Next Steps <a href="#next-steps" id="next-steps"></a>

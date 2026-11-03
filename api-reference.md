@@ -85,7 +85,7 @@ Extracts a meter reading from an image hosted at a given URL.
 
 | Field                                       | Type              | Description                                                                                                                                     |
 | ------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `meterReading`                              | `string`          | Digit string extracted from the meter (e.g. `"96733"`), when `status` is `SUCCESS`. Always a string; leading zeros are kept. By default no decimal adjustment is applied, and the downstream system interprets fractional digits based on `lastDigitColor`. With `FLOWVISION_DECIMAL_IN_READING=true` the service writes the decimal point itself (e.g. `"012644.8"`): see [Decimal point](#decimal-point). For non-`SUCCESS` statuses it carries a placeholder instead of a reading — see the note below. |
+| `meterReading`                              | `string`          | Reading extracted from the meter, when `status` is `SUCCESS`. Always a string; leading zeros are kept. When the last digit wheel is red, the service writes the decimal point (e.g. `"012644.8"`); otherwise it is digits only (e.g. `"96733"`). Use it as returned: see [Decimal point](#decimal-point). For non-`SUCCESS` statuses it carries a placeholder instead of a reading — see the note below. |
 | `hasRollover`                               | `boolean`         | `true` if one or more digit wheels were detected mid-rotation (between two digit positions).                                                    |
 | `rolloverPositions`                         | `array` \| absent | Present only when `hasRollover` is `true`. Each entry describes one rollover position. Omitted from response when there is no rollover.         |
 | `rolloverPositions[].position`              | `integer`         | 1-indexed position of the rollover digit in the reading, counted left to right. Digits only: a decimal point in `meterReading` is not counted.                                                                 |
@@ -98,13 +98,12 @@ Extracts a meter reading from an image hosted at a given URL.
 | `qualityConfidence`                         | `float`           | Model confidence for the quality classification (`0.0` – `1.0`).                                                                               |
 | `lastDigitColor`                            | `string`          | Detected color of the last digit wheel: `"red"`, `"black"`, or `"unknown"` (when no digits were detected).                                     |
 | `colorConfidence`                           | `float`           | Model confidence for the color classification (`0.0` – `1.0`).                                                                                 |
-| `decimalInReading`                          | `boolean` \| absent | `true` when the service places the decimal point: use `meterReading` as returned and do not place a point. Absent when the client places it from `lastDigitColor`. Only ever `true` or absent: see [Decimal point](#decimal-point). |
 
 > `data` is always present in the response regardless of `status`. `meterReading` only holds a real reading when `status` is `SUCCESS`; otherwise it carries a fixed placeholder string, never a number:
 >
 > | `status`  | `meterReading` value                        |
 > | --------- | ------------------------------------------- |
-> | `SUCCESS` | the extracted digit string, e.g. `"96733"`  |
+> | `SUCCESS` | the extracted reading, e.g. `"96733"` or `"012644.8"` |
 > | `NOMETER` | `"No digits detected in the image"`          |
 > | `UNCLEAR` | `"Image quality too poor for recognition"`  |
 >
@@ -112,27 +111,17 @@ Extracts a meter reading from an image hosted at a given URL.
 
 #### Decimal point
 
-A red last digit wheel is the digit after the decimal point. The `FLOWVISION_DECIMAL_IN_READING` setting (`decimal_in_reading` in `config.yaml`, off by default) decides who places the point, and `decimalInReading` tells the client which applies, so the client does not need to know the setting. The request fields and statuses are the same either way.
+A red last digit wheel is the digit after the decimal point. The service always writes the point itself, so `meterReading` is the final reading: clients use it as returned and do not place a point.
 
-| Setting | `meterReading` for 12644.8 | `decimalInReading` | Who places the point |
-| --- | --- | --- | --- |
-| Off (default) | `"0126448"` | absent | The client, from `lastDigitColor` |
-| On | `"012644.8"` | `true` | The service. The client must not place it again |
+| Last digit wheel | Example `meterReading` | Meaning |
+| --- | --- | --- |
+| Red | `"012644.8"` | 12644.8: the point goes before the red digit. A trailing `.0` is kept (`"023176.0"`) |
+| Black | `"0268045"` | 268045: a whole-number reading |
 
-Client logic: if `decimalInReading` is `true`, use `meterReading` as returned. If it is absent, place the point from `lastDigitColor`.
-
-With the setting on:
-
-- `decimalInReading` is `true` on every response that has `data`, whatever the status or colour. It means the service handled the decimal, not that the reading contains a `.`.
-- The point is written only when the service's drum colour check finds the last digit red on the meter's counter row. A trailing `.0` is kept (`"023176.0"`).
-- A black last digit returns digits only (`"0268045"`), which is a whole-number reading.
-- In the rare case that no counter row is found, or the drum colour check fails on a photo (logged as an error), the reading is digits only, even if `lastDigitColor` is `"red"`. `decimalInReading` is still `true`: use `meterReading` as returned, and do not add a point from `lastDigitColor`.
+- A reading has a point exactly when `lastDigitColor` is `"red"` (and it has at least two digits).
+- The colour comes from the drum colour model: on the meter's counter row, or on the last digit read when no counter row is found.
 - `rolloverPositions[].position` counts digits, not the `.` character. In `"030701.1"`, position 7 is the final `1`.
-- The service refuses to start if it could not write the point: `FLOWVISION_DECIMAL_DRUM=off`, `FLOWVISION_COUNTER_ROW_ONLY=false`, `models.drum_colour` empty, or the drum colour model failing to load. The error in the startup log names the cause. Each worker runs this check when it starts, including when it is recycled, and one worker failing stops the whole service.
-- To go back, set `FLOWVISION_DECIMAL_IN_READING=false` and restart: the field disappears and clients place the point again. Set this first, or at the same time, when switching off the drum check or the counter row.
-- The `meter_reading` database column stores `meterReading` as returned, so it holds the point on rows written with the setting on. `decimalInReading` is not stored.
-
-Rollout order: clients must read `decimalInReading` before the setting is turned on. A client that does not will place a second point on red readings.
+- The `meter_reading` database column stores `meterReading` as returned, including the point.
 
 **Example — successful reading with rollover**
 ```json
@@ -145,7 +134,7 @@ Rollout order: clients must read `decimalInReading` before the setting is turned
     "status": "SUCCESS",
     "correlationId": "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
     "data": {
-      "meterReading": "96733",
+      "meterReading": "9673.3",
       "hasRollover": true,
       "rolloverPositions": [
         {

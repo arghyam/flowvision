@@ -10,7 +10,7 @@ from error.error import CustomHTTPException
 from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, FeedbackStatus, BaseResponse, RolloverDigit, RolloverPosition
 from conf.config import Config
 from service.api.metadata_service import MetadataStore
-from PIL import Image, ImageOps
+from PIL import Image
 
 import requests
 from io import BytesIO
@@ -20,17 +20,12 @@ import cv2
 from service.vision.inference_utils import (
     load_bfm_classification,
     load_individual_numbers_model,
-    load_color_classification_model,
     load_orientation_model,
     load_drum_colour_model,
     turn_upright,
     settle_last_drum,
-    decimal_in_reading,
-    check_decimal_setup,
     classify_bfm_image,
     direct_recognize_meter_reading,
-    classify_color_image,
-    extract_digit_image,
     RecognitionOutcome
 )
 
@@ -53,10 +48,8 @@ class ImageService:
         # Load models from config
         self.bfm_classification_model = load_bfm_classification()
         self.individual_numbers_model = load_individual_numbers_model()
-        self.color_classification_model = load_color_classification_model()
         self.orientation_model = load_orientation_model()
         self.drum_colour_model = load_drum_colour_model()
-        check_decimal_setup(self.drum_colour_model)
 
 
     def download_image(self, imageURL):
@@ -125,29 +118,20 @@ class ImageService:
 
             # Default color result
             color_result = {"prediction": "unknown", "confidence": 0.0}
-            settled = None
 
             # Only classify color if digits were detected
             if sorted_boxes and len(sorted_boxes) > 0:
                 image_array = np.frombuffer(original_image, np.uint8)
                 image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-                settled = settle_last_drum(recognition, image, self.drum_colour_model)
-                if settled is not None:
-                    color_result = settled
-                    meter_reading_str = recognition.reading
-                    raw_rollover = recognition.rollover_positions
-                else:
-                    last_box = sorted_boxes[-1]
-                    last_digit_image = extract_digit_image(image, last_box)
-                    color_result = classify_color_image(last_digit_image, model=self.color_classification_model)
+                color_result = settle_last_drum(recognition, image, self.drum_colour_model)
+                meter_reading_str = recognition.reading
+                raw_rollover = recognition.rollover_positions
 
             last_digit_color = color_result['prediction'].lower()
             color_confidence = color_result['confidence']
 
-            # Off by default: meterReading stays the raw digit string and lastDigitColor carries the decimal.
-            # Only for a colour the drum model decided on a counter row: the point cannot be undone by the client.
-            service_places_point = decimal_in_reading()
-            if service_places_point and settled is not None and last_digit_color == 'red':
+            # A red last digit is the digit after the decimal point, so the service writes the point itself
+            if last_digit_color == 'red' and len(meter_reading_str) > 1:
                 meter_reading_str = f"{meter_reading_str[:-1]}.{meter_reading_str[-1]}"
 
             rollover_objs = [
@@ -170,9 +154,7 @@ class ImageService:
                     qualityStatus=quality_status,
                     qualityConfidence=quality_confidence,
                     lastDigitColor=last_digit_color,
-                    colorConfidence=color_confidence,
-                    # Left out with the flag off, so clients keep placing the point themselves
-                    decimalInReading=True if service_places_point else None
+                    colorConfidence=color_confidence
                 )
             )
             response = ReadingExtractionResponse(

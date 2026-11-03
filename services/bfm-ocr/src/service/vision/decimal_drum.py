@@ -67,3 +67,9 @@ def read_last_drum(bgr, boxes, confidences, model):
     if red and not drop and last < RED and _off_the_row(boxes, confidences, drums - 2):
         red = False             # a faint score on a stray after 6 black drums is not a seventh, red drum
     return drop, red, last
+
+
+def read_last_digit(bgr, box, model):
+    """(the last digit is red, its P(red)) when no counter row was found: no row to trim, so the plain threshold."""
+    p_red = float(model.red_probabilities(bgr, [Det.from_polygon(box, 0, 1.0)])[0])
+    return is_red(p_red, 1), p_red

@@ -15,9 +15,8 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 @pytest.fixture(autouse=True)
 def switches_start_at_their_defaults(monkeypatch):
-    """A switch exported in the shell (the flag is on in production) must not change what the tests see."""
-    for name in ("FLOWVISION_DECIMAL_IN_READING", "FLOWVISION_DECIMAL_DRUM", "FLOWVISION_COUNTER_ROW_ONLY",
-                 "FLOWVISION_ORIENTATION"):
+    """A switch exported in the shell must not change what the tests see."""
+    for name in ("FLOWVISION_COUNTER_ROW_ONLY", "FLOWVISION_ORIENTATION"):
         monkeypatch.delenv(name, raising=False)
 
 

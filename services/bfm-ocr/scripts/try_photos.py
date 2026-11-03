@@ -4,8 +4,8 @@ Run from services/bfm-ocr (config and model paths are relative to it):
     python scripts/try_photos.py /path/to/photos              # prints a table
     python scripts/try_photos.py /path/to/photos --csv out.csv
 
-"before" is the service with both fixes switched off (FLOWVISION_COUNTER_ROW_ONLY=false, FLOWVISION_ORIENTATION=off),
-which is how it behaved before Phase 1; "after" is Phase 1. Each photo goes through ImageService.extract_reading,
+"before" is the service with fixes 1-3 switched off (FLOWVISION_COUNTER_ROW_ONLY=false, FLOWVISION_ORIENTATION=off);
+"after" is Phase 1. Fix 4 has no switch, so both use the drum colour model and write the decimal point. Each photo goes through ImageService.extract_reading,
 the same path as POST /extract-reading, with the download replaced by reading the local file. Nothing is stored.
 """
 import argparse
@@ -58,7 +58,7 @@ def main():
 
     # keep the table readable: no fastai progress bars or per-image YOLO lines
     logging.getLogger("ultralytics").setLevel(logging.WARNING)
-    for name in ("classify_bfm_image", "classify_color_image"):
+    for name in ("classify_bfm_image",):
         def quiet(*a, _original=getattr(image_service, name), **k):
             with k["model"].no_bar():
                 return _original(*a, **k)

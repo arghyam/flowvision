@@ -7,7 +7,6 @@ import numpy as np
 import os
 import cv2
 from ultralytics import YOLO
-import yaml
 
 # Imported after the fastai star import so these names are not shadowed by it.
 from dataclasses import dataclass, field
@@ -15,28 +14,12 @@ from enum import StrEnum
 
 from conf.config import Config
 from service.vision.counter import select_row
-from service.vision.decimal_drum import read_last_drum
+from service.vision.decimal_drum import read_last_digit, read_last_drum
 from service.vision.drums import DrumColourModel
 from service.vision.orientation import OrientationModel
 from service.vision.types import Det
 import logging
 
-# Load configuration
-# def load_config(config_path="src/conf/config.yaml"):
-#     """
-#     Load configuration from YAML file
-    
-#     Args:
-#         config_path: Path to the config YAML file
-        
-#     Returns:
-#         Configuration dictionary
-#     """
-#     with open(config_path, 'r') as file:
-#         config = yaml.safe_load(file)
-#     return config
-
-# CONFIG = load_config()
 CONFIG = Config().config
 base_logger = logging.getLogger(CONFIG['logs']['api_logger']['name'])
 extraction_logger = logging.getLogger(CONFIG['logs']['extraction_request_logger']['name'])
@@ -74,16 +57,6 @@ def load_individual_numbers_model(model_path=None):
         model_path = CONFIG['models']['individual_numbers']
     individual_numbers_model = YOLO(model_path)
     return individual_numbers_model
-
-#Load the color classification model
-def load_color_classification_model(model_path=None):
-    """
-    Load the color classification model
-    """
-    if model_path is None:
-        model_path = CONFIG['models']['color_classification']
-    learn = load_learner(model_path)
-    return learn
 
 #Load the orientation model
 def load_orientation_model(model_path=None):
@@ -139,56 +112,23 @@ def get_quality_threshold():
     return threshold
 
 
-def get_digit_padding_color():
-    """
-    Resolve the fill color used for the area of a digit crop that falls outside
-    the detected digit polygon (see extract_digit_image).
-
-    Precedence: FLOWVISION_DIGIT_PADDING env var > config.yaml
-    (digit_padding_color) > hardcoded default ('black', the original behaviour).
-    Read on each call so the value reflects the current environment.
-
-    The color classifier is sensitive to this padding: the original model was
-    trained on black-padded crops, while the finetuned v2 model classifies
-    tilted digits noticeably better with white padding. Keeping it switchable
-    lets both combinations be evaluated on production data without a code
-    change or rebuild.
-
-    An env value that is not 'black' or 'white' is ignored with a warning and
-    the config value is used, so a bad override never breaks color extraction.
-    """
-    config_default = CONFIG.get('digit_padding_color', 'black')
-    env_value = os.environ.get('FLOWVISION_DIGIT_PADDING')
-    if env_value is None:
-        return config_default
-    padding = env_value.strip().lower()
-    if padding not in ('black', 'white'):
-        base_logger.warning(
-            "Invalid FLOWVISION_DIGIT_PADDING=%r (expected 'black' or 'white'); "
-            "falling back to config value %s", env_value, config_default)
-        return config_default
-    return padding
-
-
 #Load the drum colour model
 def load_drum_colour_model(model_path=None):
     """
     Load the small model that tells whether a counter drum is red (the decimal drum).
 
-    Returns None when models.drum_colour is empty, FLOWVISION_DECIMAL_DRUM is off,
-    or the model cannot be loaded (logged as an error): the last digit's colour then
-    comes from the fastai classifier, as before, and the service still starts, unless
-    FLOWVISION_DECIMAL_IN_READING is on (see check_decimal_setup).
+    It decides lastDigitColor and so the decimal point on every reading: the service
+    does not start without it (models.drum_colour empty, or the model fails to load).
     """
     if model_path is None:
         model_path = CONFIG['models'].get('drum_colour')
-    if not model_path or not decimal_drum_enabled():
-        return None
+    if not model_path:
+        raise RuntimeError("models.drum_colour is empty: the drum colour model decides the decimal point")
     try:
         return DrumColourModel(model_path)
-    except Exception:
+    except Exception as error:
         base_logger.error("Drum colour model %s could not be loaded", model_path, exc_info=True)
-        return None
+        raise RuntimeError(f"Drum colour model {model_path} could not be loaded: {error}") from error
 
 
 def _switch(env_name, config_key, default=True):
@@ -220,35 +160,6 @@ def counter_row_only():
 def orientation_enabled():
     """Turn rotated photos upright (FLOWVISION_ORIENTATION > on; models.orientation "" also disables it)."""
     return _switch('FLOWVISION_ORIENTATION', 'orientation_enabled')
-
-
-def decimal_drum_enabled():
-    """Decide the decimal drum with the drum colour model (FLOWVISION_DECIMAL_DRUM > on)."""
-    return _switch('FLOWVISION_DECIMAL_DRUM', 'decimal_drum_enabled')
-
-
-def decimal_in_reading():
-    """Write the decimal point into meterReading (FLOWVISION_DECIMAL_IN_READING > config.yaml > off)."""
-    return _switch('FLOWVISION_DECIMAL_IN_READING', 'decimal_in_reading', default=False)
-
-
-def check_decimal_setup(drum_colour_model):
-    """
-    Refuse to start when FLOWVISION_DECIMAL_IN_READING is on but the service could
-    not write the point: clients stop placing it, so readings would lose the decimal.
-    """
-    if not decimal_in_reading():
-        return
-    problems = []
-    if drum_colour_model is None:
-        problems.append("the drum colour model is not loaded (FLOWVISION_DECIMAL_DRUM off, "
-                        "models.drum_colour empty, or the model failed to load)")
-    if not counter_row_only():
-        problems.append("FLOWVISION_COUNTER_ROW_ONLY is off")
-    if problems:
-        message = "FLOWVISION_DECIMAL_IN_READING is on but the decimal point cannot be written: " + "; ".join(problems)
-        base_logger.error(message)
-        raise RuntimeError(message)
 
 
 def classify_bfm_image(img, model=None, threshold=None):
@@ -289,36 +200,6 @@ def classify_bfm_image(img, model=None, threshold=None):
         'prediction': prediction,
         'confidence': confidence,
         'all_probs': all_probs
-    }
-
-def classify_color_image(image_path, model=None):
-    """
-    Classify the last digit crop as red or black.
-    """
-    if model is None:
-        model = load_color_classification_model()
-        
-    # Load the image
-    if isinstance(image_path, str):
-        image = cv2.imread(image_path)
-    elif isinstance(image_path, np.ndarray):
-        image = image_path
-    else:
-        raise ValueError("Input must be either a file path or a numpy array")
-    
-    # Convert BGR to RGB since FastAI expects RGB
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    
-    # Convert to FastAI image format
-    img = PILImage.create(image)
-
-    # Make prediction
-    pred_class, pred_idx, probs = model.predict(img)
-    
-    return {
-        'prediction': str(pred_class),
-        'confidence': float(probs[pred_idx]),
-        'all_probs': [float(p) for p in probs]
     }
 
 def enhance_image(image):
@@ -402,28 +283,6 @@ def turn_upright(image_bytes, model=None):
     except Exception:
         base_logger.warning("Orientation check failed; reading the photo as taken", exc_info=True)
         return image_bytes, 0, None
-
-
-def test_image_prediction(image_path=None):
-    """
-    Test function to run prediction on a single image
-    
-    Args:
-        image_path: Path to the image file to classify
-        
-    Returns:
-        None, prints prediction results
-    """
-    try:
-        if image_path is None:
-            image_path = CONFIG['test']['sample_image']
-            
-        # Run classification
-        results = classify_bfm_image(image_path)
-        extraction_logger.info(results)
-            
-    except Exception as e:
-        extraction_logger.error(f"Error processing image: {str(e)}")
 
 
 def sort_boxes_by_position(boxes, classes, confidences=None):
@@ -747,22 +606,16 @@ def settle_last_drum(recognition, image, model):
     Args:
         recognition: The DigitRecognitionResult; updated when boxes are dropped
         image: The upright photo as a BGR numpy array (true colours)
-        model: The loaded DrumColourModel, or None
+        model: The loaded DrumColourModel
 
     Returns:
-        {'prediction', 'confidence'} like classify_color_image, or None when the
-        boxes are not a counter row, there is no model or it failed (the caller then
-        uses classify_color_image, as before).
+        {'prediction': 'red' or 'black', 'confidence'}. When no counter row was found
+        only the last digit is scored and nothing is dropped.
     """
-    if model is None or recognition.confidences is None or not decimal_drum_enabled():
-        return None
-    try:
-        drop, red, p_red = read_last_drum(image, recognition.boxes, recognition.confidences, model)
-    except Exception:
-        # With the service placing the point, a red drum on this photo loses it: that must stand out in the logs
-        log = base_logger.error if decimal_in_reading() else base_logger.warning
-        log("Drum colour check failed; using the fastai colour classifier", exc_info=True)
-        return None
+    if recognition.confidences is None:
+        red, p_red = read_last_digit(image, recognition.boxes[-1], model)
+        return {'prediction': 'red' if red else 'black', 'confidence': p_red if red else 1.0 - p_red}
+    drop, red, p_red = read_last_drum(image, recognition.boxes, recognition.confidences, model)
     if drop:
         keep = len(recognition.boxes) - drop
         recognition.boxes = recognition.boxes[:keep]
@@ -771,111 +624,3 @@ def settle_last_drum(recognition, image, model):
         recognition.reading = ''.join(str(cls) for cls in recognition.classes)
         recognition.rollover_positions = [rp for rp in recognition.rollover_positions if rp['position'] <= keep]
     return {'prediction': 'red' if red else 'black', 'confidence': p_red if red else 1.0 - p_red}
-
-
-# Function to extract digit image from its bounding box
-def extract_digit_image(image, box, padding=None):
-    """
-    Crop a single detected digit out of the meter image.
-
-    YOLO returns an oriented (rotated) box, so the axis-aligned crop contains
-    corner regions that lie outside the digit polygon. Those regions are filled
-    with a flat padding color.
-
-    Args:
-        image: Full meter image as a BGR numpy array
-        box: Oriented bounding box as 4 polygon points
-        padding: 'black' or 'white'. Defaults to the FLOWVISION_DIGIT_PADDING
-                 env var, else config value digit_padding_color ('black' if
-                 neither is set).
-
-    Returns:
-        Cropped digit image as a BGR numpy array
-    """
-    if padding is None:
-        padding = get_digit_padding_color()
-
-    # Get bounding rectangle for the polygon
-    rect = cv2.boundingRect(box)
-    x, y, w, h = rect
-
-    # Extract region from image
-    cropped = image[y:y+h, x:x+w].copy()
-
-    # Create mask for the polygon
-    mask = np.zeros(cropped.shape[:2], dtype=np.uint8)
-
-    # Shift polygon coordinates to the local rectangle
-    shifted_box = box - np.array([x, y])
-
-    # Fill the polygon on the mask
-    cv2.fillPoly(mask, [shifted_box], 255)
-
-    # Apply mask to get only the digit, padding the rest of the crop
-    if padding == 'white':
-        result = np.full_like(cropped, 255)
-        result[mask == 255] = cropped[mask == 255]
-    else:
-        result = cv2.bitwise_and(cropped, cropped, mask=mask)
-
-    return result
-
-
-def is_last_digit_color_different_hsv(digit_crops, threshold=0.85):
-    """
-    Returns True if the last digit's color differs from the others based on HSV analysis.
-    
-    Args:
-        digit_crops: List of the last 3 digit images [n-2, n-1, n]
-        threshold: Match ratio threshold below which the digit is considered different color
-        
-    Returns:
-        Tuple (is_red, confidence) where is_red is a boolean and confidence is a float
-    """
-    # Convert all digit crops to HSV color space
-    hsv_digits = [cv2.cvtColor(crop, cv2.COLOR_BGR2HSV) for crop in digit_crops]
-
-    # Combine pixels of the 2nd and 3rd last digits as reference
-    ref_pixels = np.concatenate([hsv.reshape(-1, 3) for hsv in hsv_digits[:2]], axis=0)
-    last_pixels = hsv_digits[2].reshape(-1, 3)
-    
-    # Define tolerance range (H, S, V)
-    margin = np.array([12, 40, 40])
-    
-    # Compute HSV bounds from reference digits
-    min_vals = np.maximum(np.min(ref_pixels, axis=0) - margin, [0, 0, 0])
-    max_vals = np.minimum(np.max(ref_pixels, axis=0) + margin, [180, 255, 255])
-
-    # Only compare Hue and Saturation channels
-    last_pixels_hs = last_pixels[:, :2]
-    min_vals_hs = min_vals[:2]
-    max_vals_hs = max_vals[:2]
-
-    # Count how many pixels in last digit are within the reference range
-    in_range = np.all((last_pixels_hs >= min_vals_hs) & (last_pixels_hs <= max_vals_hs), axis=1)
-    match_ratio = np.sum(in_range) / len(last_pixels)
-    
-    is_red = match_ratio < threshold
-    confidence = 1.0 - match_ratio if is_red else match_ratio
-    
-    return {"is_red": is_red, "confidence": confidence}
-
-if __name__ == "__main__":
-    # Example usage
-    test_image_path = CONFIG['test']['sample_image']
-    
-    # First classify the image
-    classification_result = classify_bfm_image(test_image_path)
-    extraction_logger.info("Classification result: %s", classification_result)
-    
-    # Only proceed with digit detection if image is classified as "Good"
-    if classification_result['prediction'].lower() == 'good':
-        recognition = direct_recognize_meter_reading(test_image_path)
-        if recognition.outcome is RecognitionOutcome.DIGITS_FOUND:
-            extraction_logger.info("Detected meter reading: %s", recognition.reading)
-        else:
-            extraction_logger.info("No reading extracted (%s): %s",
-                                   recognition.outcome, recognition.detail)
-    else:
-        extraction_logger.info("Image classified as bad quality - skipping digit detection")
-
