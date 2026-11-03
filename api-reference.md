@@ -97,7 +97,7 @@ Extracts a meter reading from an image hosted at a given URL.
 | `qualityStatus`                             | `string`          | Image quality classification: `"good"` or `"bad"`.                                                                                             |
 | `qualityConfidence`                         | `float`           | Model confidence for the quality classification (`0.0` – `1.0`).                                                                               |
 | `lastDigitColor`                            | `string`          | Detected color of the last digit wheel: `"red"`, `"black"`, or `"unknown"` (when no digits were detected).                                     |
-| `colorConfidence`                           | `float`           | Model confidence for the color classification (`0.0` – `1.0`).                                                                                 |
+| `colorConfidence`                           | `float`           | Model confidence for the color classification (`0.0` – `1.0`). A faint red last wheel on a 7-wheel counter can be reported `"red"` with a value between `0.3` and `0.5`. |
 
 > `data` is always present in the response regardless of `status`. `meterReading` only holds a real reading when `status` is `SUCCESS`; otherwise it carries a fixed placeholder string, never a number:
 >
