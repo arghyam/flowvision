@@ -1,4 +1,4 @@
-from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, FeedbackStatus, BaseResponse
+from models.models import ReadingExtractionRequest, ReadingExtractionResponse, FeedbackRequest
 from service.api.database import DatabaseService
 from conf.config import Config
 from conf import queries

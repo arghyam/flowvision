@@ -46,10 +46,10 @@ The system uses a hierarchical configuration approach with YAML-based settings a
 
 #### Request Flow Architecture <a href="#request-flow-architecture" id="request-flow-architecture"></a>
 
-The system implements a three-stage processing pipeline: image upload, reading extraction, and feedback collection.
+The system implements a two-stage processing pipeline: reading extraction and feedback collection. The photo is fetched from the `imageURL` in the request.
 
 ```
-"S3 Storage""MetadataStore""inference_utils""Vision Service""ImageService""routes.py"Client"S3 Storage""MetadataStore""inference_utils""Vision Service""ImageService""routes.py"ClientImage Upload PhaseReading Extraction Phasealt[Quality Status == 'good'][Quality Status == 'bad']Feedback Phase"POST /flowvision/v1/uploadImage""StorageService.upload_image()""ImageUploadResponse""Image URL""POST /flowvision/v1/extract-reading""extract_reading(request, background_tasks)""store_request() [async]""preprocess_image(imageURL)""classify_bfm_image()""extract(image_bytes)""meter_reading, boxes, classes""classify_color_image()""store_response() [async]""ReadingExtractionResponse(SUCCESS)""store_response() [async]""ReadingExtractionResponse(UNCLEAR)""Extraction Results""POST /flowvision/v1/feedback""log_feedback(request, background_tasks)""store_feedback() [async]""FeedbackResponse""Feedback Confirmation"
+"MetadataStore""inference_utils""Vision Service""ImageService""routes.py"Client"MetadataStore""inference_utils""Vision Service""ImageService""routes.py"ClientReading Extraction Phasealt[Quality Status == 'good'][Quality Status == 'bad']Feedback Phase"POST /flowvision/v1/extract-reading""extract_reading(request, background_tasks)""store_request() [async]""preprocess_image(imageURL)""classify_bfm_image()""extract(image_bytes)""meter_reading, boxes, classes""classify_color_image()""store_response() [async]""ReadingExtractionResponse(SUCCESS)""store_response() [async]""ReadingExtractionResponse(UNCLEAR)""Extraction Results""POST /flowvision/v1/feedback""log_feedback(request, background_tasks)""store_feedback() [async]""FeedbackResponse""Feedback Confirmation"
 ```
 
 

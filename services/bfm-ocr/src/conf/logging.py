@@ -40,6 +40,8 @@ class CustomLoggers:
             self.base_logger.handlers.clear()
 
         formatter = logging.Formatter(log_format)
-        base_log_handler = TimedRotatingFileHandler(filename=f"{log_path}/{log_file}", when='midnight', interval=1)
+        # A new file each midnight; only the last 30 days are kept, so the server's disk does not fill up
+        base_log_handler = TimedRotatingFileHandler(filename=f"{log_path}/{log_file}", when='midnight', interval=1,
+                                                    backupCount=30)
         base_log_handler.setFormatter(formatter)
         self.base_logger.addHandler(base_log_handler)

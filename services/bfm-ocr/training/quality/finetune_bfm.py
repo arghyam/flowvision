@@ -4,13 +4,13 @@ Fine-tune BFM Quality Classifier
 Fine-tunes the active bfm_fastai_v2 model on new labelled images to improve
 meter-readability (good/bad) classification.
 
-Data layout expected under src/data/:
-  src/data/training/quality/
+Data layout expected under training/data/:
+  training/data/train/quality/
     good/          ← training images labelled good
     bad/           ← training images labelled bad
     annotations.csv  ← optional; must contain 'image' and 'verified' columns
                        if present; only verified=True rows are used
-  src/data/test/
+  training/data/test/
     images/        ← held-out test images (never used for training)
     annotations.csv  ← must contain 'image' and 'image_quality' columns
 
@@ -51,10 +51,10 @@ from fastai.vision.all import (
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
 PROJECT_ROOT  = Path(__file__).parent.parent.parent
-TRAIN_IMG_DIR = PROJECT_ROOT / "src" / "data" / "training" / "quality"
-TRAIN_ANN_CSV = PROJECT_ROOT / "src" / "data" / "training" / "quality" / "annotations.csv"
-TEST_ANN_CSV  = PROJECT_ROOT / "src" / "data" / "test" / "annotations.csv"
-TEST_IMG_DIR  = PROJECT_ROOT / "src" / "data" / "test" / "images"
+TRAIN_IMG_DIR = PROJECT_ROOT / "training" / "data" / "train" / "quality"
+TRAIN_ANN_CSV = PROJECT_ROOT / "training" / "data" / "train" / "quality" / "annotations.csv"
+TEST_ANN_CSV  = PROJECT_ROOT / "training" / "data" / "test" / "annotations.csv"
+TEST_IMG_DIR  = PROJECT_ROOT / "training" / "data" / "test" / "images"
 ORIG_MODEL    = PROJECT_ROOT / "src" / "models" / "bfm_fastai_v2"
 CKPT_DIR      = PROJECT_ROOT / "training" / "quality" / "models"
 EXPORT_DIR    = PROJECT_ROOT / "src" / "models"
@@ -123,7 +123,7 @@ bad_count  = len(list((TRAIN_IMG_DIR / "bad").glob("*.jpg")))
 print(f"  Training images on disk — good: {good_count}, bad: {bad_count}")
 
 if good_count + bad_count == 0:
-    print("\nERROR: No training images found in src/data/training/quality/")
+    print("\nERROR: No training images found in training/data/train/quality/")
     sys.exit(1)
 
 # Only brightness/contrast augmentation — spatial transforms disabled because
@@ -208,7 +208,7 @@ interp.print_classification_report()
 
 # ── Step 9: Evaluate on held-out test set ─────────────────────────────────────
 
-print_section("Step 9 — Evaluation on held-out test set (src/data/test/)")
+print_section("Step 9 — Evaluation on held-out test set (training/data/test/)")
 
 if TEST_ANN_CSV.exists():
     test_ann = pd.read_csv(TEST_ANN_CSV)

@@ -133,9 +133,10 @@ Specify paths to pre-trained model files:
 
 ```markdown
 models:  
-    bfm_classification: "/path/to/src/models/bfm_fastai"  
-    individual_numbers: "/path/to/src/models/individual_number_recognition_yolo11l.pt"  
-    color_classification: "/path/to/src/models/color_classification_fastai"
+    bfm_classification: "src/models/bfm_fastai_v2"  
+    orientation: "src/models/orientation_yolo11n_cls.onnx"  
+    yolox_reader: "src/models"  
+    screen_check: "src/models/screen_check.onnx"
 ```
 
 #### Step 4: Environment Variables <a href="#step-4-environment-variables" id="step-4-environment-variables"></a>
@@ -214,7 +215,6 @@ python src/run.py
 
 The application will start on the configured port (default: 8000) with the following endpoints exposed:
 
-* `POST /flowvision/v1/uploadImage` - Image upload with S3 storage
 * `POST /flowvision/v1/extract-reading` - Meter reading extraction
 * `POST /flowvision/v1/feedback` - User feedback logging
 
@@ -231,8 +231,6 @@ curl http://localhost:8000/health
 # Verify rate limiting (Redis connection)
 curl http://localhost:8000/flowvision/v1/extract-reading -X POST
 
-# Test image upload
-curl -X POST "http://localhost:8000/flowvision/v1/uploadImage" \     -F "image=@path/to/test/image.jpg"
 ```
 
 #### Service Component Status <a href="#service-component-status" id="service-component-status"></a>
@@ -249,12 +247,11 @@ Verify your selected vision model loads correctly:
 # Check logs for model loading messages
 tail -f logs/api_logs/FlowVision.log
 
-# Test with sample image from config
+# Check the configuration loads
 python -c "
 from src.conf.config import Config
 config = Config()
 print(f'Vision model: {config.vision_model}')
-print(f'Test image: {config.test.sample_image}')
 "
 ```
 

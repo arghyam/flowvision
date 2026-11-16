@@ -24,15 +24,16 @@ Layout written under --out:
   dataset/{train,val}/{r000,r090,r180,r270}/<photo>.jpg
   run/weights/best.pt
 
-The model in src/models/orientation_yolo11n_cls.pt was made in two runs (Oct 2026). First, 710 upright production
+The model in src/models/orientation_yolo11n_cls.onnx (an ONNX export of the trained .pt, 16 Nov 2026) was made in two runs (Oct 2026). First, 710 upright production
 photos (15 epochs, batch 32; val top-1 accuracy 1.0); on 169 rotated production photos, turning them upright with it
 (min_confidence 0.9) took readings that agreed with the confirmed value from 0 to 90. Then that model was fine-tuned
 (--base, 10 epochs, batch 64) on 4,159 production photos whose AI value had been confirmed unchanged, after dropping
 the 40 the first model did not call upright (operators had confirmed some garbage readings of rotated photos). It
 turns all 9 rotated photos of the 100 hand-checked Annexure photos upright and makes fewer needless turns.
 
-To deploy a run:
-  cp <out>/run/weights/best.pt src/models/orientation_yolo11n_cls.pt
+To deploy a run (the service runs the ONNX export):
+  yolo export model=<out>/run/weights/best.pt format=onnx imgsz=224 simplify=False
+  cp <out>/run/weights/best.onnx src/models/orientation_yolo11n_cls.onnx
   (config.yaml models.orientation points at it; "" disables the model)
 
 Run (any working directory; everything is written under --out):

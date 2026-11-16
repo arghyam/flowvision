@@ -1,5 +1,8 @@
 log_level: "info"
+# Largest photo accepted, in bytes (10 MB) and in pixels (60 megapixels); larger ones get an error before they are
+# decoded, so one huge photo cannot use up the server's memory. The field photos are under 1 MB and 13 megapixels.
 file_size_limit: 10485760
+max_photo_pixels: 60000000
 
 app_server:
   port: 8000
@@ -27,11 +30,26 @@ database:
 # Model paths
 models:
   bfm_classification: "src/models/bfm_fastai_v2"
+  # Sahaj main's old digit and colour models, used only when yolox_reader is off. Removed from this folder on 16 Nov 2026
+  # (owner): the reader has its own. They are still on GitHub main (services/bfm-ocr/src/models/) if ever needed.
   individual_numbers: "src/models/individual_number_recognition_yolo11l.pt"
   color_classification: "src/models/color_classification_fastai_v2"
   # Tells how far a photo is rotated (0/90/180/270) so it is turned upright before
   # the quality check and the digit model. "" disables it (photos read as taken).
-  orientation: "src/models/orientation_yolo11n_cls.pt"
+  orientation: "src/models/orientation_yolo11n_cls.onnx"
+  yolox_reader: "src/models"
+  # Screen / paper check (CLIP ViT-B-32 + a trained layer, one ONNX file, kept local, never in git). "" disables it.
+  screen_check: "src/models/screen_check.onnx"
+
+# Screen / paper check (owner, 11 Nov 2026; retrained 12 Nov with round r4 labels): a photo of a phone or computer screen,
+# or of digits on paper, is refused (NOMETER) before any digit is read. Trained on 61,015 field photos (1,365 screens, 87 paper):
+# 91% of screens / paper caught while 0.1% of other photos are refused (grouped cross-validation); on the held-out test photos
+# 49 of 51 screens / paper refused, 0 of 1,892 other photos.
+# Switch off (e.g. to read meter photos shown on a phone) at deploy time, no rebuild needed: FLOWVISION_SCREEN_CHECK=off.
+screen_check: true
+# Refuse when P(screen) + P(paper) is above this. Empty: the value stored in the model file (0.907, the 0.1% setting).
+# 0.852 catches 95% and refuses 0.2% of other photos (on the test photos: 50 of 51, but 3 real meters of 1,892 refused).
+screen_check_threshold:
 
 # The orientation model must be at least this sure before a photo is turned.
 # 0.9 is the setting the rotated-photo measurements used.
@@ -40,10 +58,86 @@ orientation_min_confidence: 0.9
 
 # Read only the meter's counter row: digits on one straight line with the same
 # height and a regular pitch. Dial numbers, scale-ring numbers, the 'H' label and
-# serial numbers are left out. When no row of 3 or more digits is found the photo
-# is read as before (every digit, left to right).
+# serial numbers are left out.
 # Switch off at deploy time (no rebuild needed) with FLOWVISION_COUNTER_ROW_ONLY=false.
+# Only the old digit model (yolox_reader off) uses this switch: the reader always reads the counter row only.
 counter_row_only: true
+
+# With counter_row_only on, a reading is refused (UNCLEAR) when no counter row is found,
+# a drum is missing from the row, or the row has fewer digits than this.
+# 6: on the 1,000 test photos (31 Oct 2026) 5-digit readings were mostly a missed last wheel: raising it
+# from 5 removed 15 wrong and 29 risky readings and lost 13 right ones (5-wheel dial meters are refused).
+# One digit fewer is allowed when the first digit is not 0 (2 Nov 2026): those rows are 5-wheel meters, such as Belanto.
+# Rows starting with 0 are mostly a missed last wheel, so they are still refused.
+counter_min_digits: 6
+
+# Read digits with the YOLOX reader (bfm_window.onnx and bfm_digits.onnx in src/models)
+# instead of the individual numbers model. FLOWVISION_YOLOX_READER overrides this.
+# On since 13 Nov 2026 (owner, delivery 14 Nov): digits round 17a + colour round 9 in src/models (all models in one folder since 16 Nov); all measured results use it.
+# Must stay on: the old models it would fall back to were removed on 16 Nov (see models above).
+yolox_reader: true
+
+# With the YOLOX reader, a reading with a digit below this confidence is refused (UNCLEAR).
+reader_min_digit_confidence: 0.75
+
+# The counter check settings below (reader_min_centred, turning_wheel_allowed, reader_max_unclear,
+# reader_min_carry_centred) apply only while reader_versions_agree is OFF. With it on, as delivered, the agreement
+# check replaces the counter check, and these four settings change nothing. The counter check model (bfm_gate.onnx)
+# was removed on 16 Nov 2026 because it was not used; without it the reader skips the check even with this switch off.
+
+# With bfm_gate.onnx beside the reader's models, a reading is refused when the counter check is less
+# sure than this that every wheel is centred. 0.8 was chosen on the validation meters (31 Oct 2026): 0.7 to
+# 0.8 halves the mid-turn wheels kept (11.9% to 7.7%); 0.9 gains nothing more and loses far more good counters.
+reader_min_centred: 0.8
+
+# On: a turning wheel is read, and only an unclear counter is refused. Off: a counter with a turning wheel is refused.
+# FLOWVISION_TURNING_WHEEL overrides this.
+turning_wheel_allowed: true
+# Which digit a turning wheel gives. Off (owner, 14 Nov 2026): the owner's half rule of 12 Nov, the digit that shows more
+# (the incoming digit once half of it shows, a tie goes to the incoming digit, 9 to 0 included). The digit model (round
+# 17a) learned this rule. On: the LOWER digit, the digit going out (JalSoochak's Rollover Digits Handling Spec); considered
+# on 14 Nov and not adopted. On the 970 test photos it changed no reading, because the reader never found both digits on a
+# wheel; it would need a model retrained on lower-rule labels. FLOWVISION_TURNING_WHEEL_LOWER overrides this.
+turning_wheel_lower: false
+
+# A refused counter tilted at least this many degrees is turned level and read once more. 2 on the set-aside meters
+# (2 Nov 2026): 15 more readings, none wrong. Levelling every tilted counter lost readings, so it is a second try only.
+reader_level_tilt: 2.0
+# On: the counter is cut tight to its row and must read the same on every version of it (contrast raised, turned 3
+# degrees each way, the first cut-out); this replaces the counter check. Off: first cut-out, counter check, second try level.
+reader_versions_agree: true
+# A counter tilted this much (degrees) or more: its first cut-out holds tiny digits and has no vote.
+reader_steep_tilt: 15.0
+# How many of the three tight versions may differ. The first cut-out, where it has a vote, may not.
+reader_versions_may_differ: 1
+# Rule E: when every version reads one of two numbers one step apart on the last wheel, read it instead of
+# refusing: the wheel shows about half of each, so by the half rule the upcoming number (9 to 0 included, with the
+# carry), or the lower number when turning_wheel_lower is on.
+# OFF since 13 Nov 2026: replayed on the full trace of round 17a (simulate_settings.py), rule E's extra readings were about half one
+# step off (set-aside 13 right, 14 off by 1; test 14 right, 14 off by 1, 2 wrong): versions that split do not mean the wheel is at half.
+# With it off the test photos give 560 right / 7 off by 1 / 10 wrong (on: 574 / 21 / 12). Every measured round was scored without it.
+reader_rule_e: false
+# On: a photo the quality check calls bad is still read, and only the agreement decides. Off: it is refused.
+reader_poor_photos: true
+
+# With turning_wheel_allowed, a reading is refused when the counter check is this sure the counter is
+# unclear. 0.5 on the validation meters: catches 60 of 93 unclear counters, loses 55 of 602 readable ones.
+reader_max_unclear: 0.5
+
+# With turning_wheel_allowed, a reading ending in 9 or 0 is refused when the counter check is less sure than this
+# that every wheel is centred. 0.1 on the set-aside meters (2 Nov 2026): stops 9 of 10 mixed readings across
+# set-aside and test photos, and refuses about 8% of readings that were right.
+reader_min_carry_centred: 0.1
+
+# With the YOLOX reader, a last wheel called black is refused when its ink is this much redder than the
+# row's. 6 on the training meters: 127 of 148 red wheels reach it, 18 of 382 black ones do.
+reader_max_black_redness: 100.0
+
+# With bfm_colour.onnx beside the reader's models, the last wheel is called red at this score or above.
+# 0.7 on the validation meters (1 Nov 2026): 58 of 58 red wheels caught, 11 of 683 black ones called red.
+reader_red_limit: 0.7
+# The last wheel's colour is refused when the colour check's P(red) falls here: a colour mistake makes a reading 10 times off.
+reader_colour_unsure: [0.3, 0.7]
 
 # Minimum P(good) required to classify an image as good quality.
 # Images below this threshold are classified as bad and returned as UNCLEAR.
@@ -72,7 +166,3 @@ image_enhancement:
   sharpening_beta: -0.5
   color_boost_alpha: 1.1
   color_boost_beta: 10
-
-# Test image paths
-test:
-  sample_image: "dataset/data_cleaned/classification_data/Good/20240909121001_C2268402_F20918_M7711086.png"

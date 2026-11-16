@@ -1,7 +1,7 @@
-# Images under src/data/ are large binaries — track only CSVs and .gitkeep
-src/data/**/*.jpg
-src/data/**/*.jpeg
-src/data/**/*.png
+# Training images under training/data/ are large binaries (and field photos) — track only CSVs and .gitkeep
+training/data/**/*.jpg
+training/data/**/*.jpeg
+training/data/**/*.png
 
 # Training checkpoint files — large, not needed in git
 training/*/models/*.pth
@@ -9,3 +9,16 @@ training/*/models/*.pth
 # Working documents (production readings with names and phone numbers): never in git
 docs/*.xlsx
 docs/*.pdf
+
+# Private field data (photos, operators' names and phone numbers): never in git
+local_donot_push_this/
+
+# The tests stay on the owner's Mac, not on GitHub (owner, 13 Nov 2026)
+tests/
+
+# The reader models go in git since 13 Nov 2026 (owner). The screen / paper check (351 MB) cannot:
+# GitHub refuses files over 100 MB, so it is handed over separately (or via Git LFS).
+src/models/screen_check.onnx
+
+#postamn api tests
+/postman/collections/*.json

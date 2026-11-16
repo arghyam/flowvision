@@ -1,11 +1,9 @@
-import logging
-from fastapi import APIRouter, FastAPI, Form, BackgroundTasks
-from typing_extensions import Annotated
+from fastapi import APIRouter, FastAPI, BackgroundTasks
 
 from conf.logging import CustomLoggers
 from service.api.image_service import ImageService
 from conf.config import Config
-from models.models import ImageUploadRequest, ReadingExtractionRequest, ReadingExtractionResponse, FeedbackRequest, FeedbackResponse
+from models.models import ReadingExtractionRequest, ReadingExtractionResponse, FeedbackRequest, FeedbackResponse
 
 from dotenv import load_dotenv
 

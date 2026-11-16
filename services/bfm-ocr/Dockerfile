@@ -44,6 +44,8 @@ COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 ENV PYTHONPATH=/app/src
+# The orientation model's library (ultralytics) otherwise checks the internet at startup and sends usage statistics
+ENV YOLO_OFFLINE=true
 
 # Pre-create /app owned by flowuser so the app can create logs/ at runtime;
 # the legacy builder would otherwise create WORKDIR as root
@@ -107,7 +109,7 @@ exec gunicorn -k uvicorn.workers.UvicornWorker routes:app \
   --workers \"$WORKERS\" \
   --timeout \"$TIMEOUT\" \
   --graceful-timeout \"${GRACEFUL_TIMEOUT:-60}\" \
-  --keep-alive \"${KEEPALIVE:-30}\" \
+  --keep-alive \"${KEEPALIVE:-65}\" \
   --max-requests \"${MAX_REQUESTS:-200}\" \
   --max-requests-jitter \"${MAX_REQUESTS_JITTER:-50}\" \
   --log-level \"${LOG_LEVEL:-info}\""]

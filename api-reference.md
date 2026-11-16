@@ -1,10 +1,12 @@
 # API Reference
 
-This document provides a comprehensive reference for the FlowVision REST API, including endpoint specifications, request/response formats, authentication, and error handling patterns. The API enables external clients to extract meter readings from images hosted at a URL using AI-powered vision services.
+This document provides a comprehensive reference for the FlowVision REST API, including endpoint specifications, request/response formats and error handling patterns. The service has no authentication of its own: it must only be reachable from the client's backend (see the BFM README, "Before going live on AWS"). The API enables external clients to extract meter readings from images hosted at a URL using AI-powered vision services.
 
 ### API Overview <a href="#api-overview" id="api-overview"></a>
 
 The FlowVision API is built using FastAPI and exposes a RESTful interface at the base path `/flowvision/v1/bfm`. The original base path `/flowvision/v1` serves the same endpoints for existing clients. The API follows a two-phase workflow: reading extraction from an image URL, and optional feedback submission linked to the extraction by its `correlationId`.
+
+**Every answer comes with HTTP status 200, errors included.** Check `responseCode` (`OK` / `ERROR`) and then `result.status`. Only a request body that fails validation gets a real HTTP 422.
 
 ---
 
@@ -45,7 +47,7 @@ Extracts a meter reading from an image hosted at a given URL.
 | ---------- | ------------------- | -------- | ------------------------------------------------ |
 | `id`       | `string (UUID)`     | No       | Client-generated request identifier              |
 | `ts`       | `string (datetime)` | No       | Request timestamp in ISO 8601 format             |
-| `imageURL` | `string`            | Yes      | URL of the meter image (e.g. S3 presigned URL)   |
+| `imageURL` | `string`            | Yes      | URL of the meter image (e.g. S3 presigned URL). The download must finish within 30 s; photos over 10 MB or 60 megapixels are refused with an error |
 | `metadata` | `object`            | No       | Arbitrary key-value pairs for additional context |
 
 **Example**
@@ -85,19 +87,20 @@ Extracts a meter reading from an image hosted at a given URL.
 
 | Field                                       | Type              | Description                                                                                                                                     |
 | ------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `meterReading`                              | `string`          | Raw digit string extracted from the meter (e.g. `"96733"`), when `status` is `SUCCESS`. No decimal adjustment is applied — the downstream system interprets fractional digits based on `lastDigitColor`. For non-`SUCCESS` statuses it carries a placeholder instead of a reading — see the note below. |
-| `hasRollover`                               | `boolean`         | `true` if one or more digit wheels were detected mid-rotation (between two digit positions).                                                    |
+| `meterReading`                              | `string`          | The reading, when `status` is `SUCCESS`. Always a string; leading zeros are kept. When the last digit wheel is red (`lastDigitColor` `"red"`), the service writes the decimal point before it (e.g. `"024506.9"` = 24506.9); otherwise it is digits only (e.g. `"0268045"`). Use it as returned: do not divide by 10 or place a point yourself. A wheel caught between two digits gives the digit that shows more: the next digit once half of it shows, otherwise the current one (9 to 0 the same way, with the carry). For non-`SUCCESS` statuses it carries a placeholder instead of a reading — see the note below. |
+| `hasRollover`                               | `boolean`         | `true` when the service found two digits on one wheel (turning) and chose one. The current digit model reads one digit per wheel, so this is normally `false`. |
 | `rolloverPositions`                         | `array` \| absent | Present only when `hasRollover` is `true`. Each entry describes one rollover position. Omitted from response when there is no rollover.         |
-| `rolloverPositions[].position`              | `integer`         | 1-indexed position of the rollover digit in the reading, counted left to right.                                                                 |
-| `rolloverPositions[].selectedDigit.value`   | `integer`         | The digit value chosen by the model (highest-confidence detection at this position).                                                            |
+| `rolloverPositions[].position`              | `integer`         | 1-indexed position of the rollover digit in the reading, counted left to right. Digits only: the decimal point is not counted.                                                                 |
+| `rolloverPositions[].selectedDigit.value`   | `integer`         | The digit used in `meterReading` at this position.                                                                                              |
 | `rolloverPositions[].selectedDigit.confidence` | `float`        | Model confidence for the selected digit (`0.0` – `1.0`).                                                                                       |
-| `rolloverPositions[].alternateDigit.value`  | `integer`         | The next-best digit candidate at this position.                                                                                                 |
+| `rolloverPositions[].alternateDigit.value`  | `integer`         | The other digit seen on the turning wheel.                                                                                                      |
 | `rolloverPositions[].alternateDigit.confidence` | `float`       | Model confidence for the alternate digit (`0.0` – `1.0`).                                                                                      |
-| `processingTime`                            | `float`           | Total server-side processing time in seconds.                                                                                                   |
-| `qualityStatus`                             | `string`          | Image quality classification: `"good"` or `"bad"`.                                                                                             |
+| `processingTime`                            | `float`           | Server-side time in seconds to download and read the photo (the last wheel's colour check is not included).                                    |
+| `qualityStatus`                             | `string`          | Image quality classification: `"good"` or `"bad"`; `"not checked"` for a photo of a screen or paper, refused before this check. A `bad` photo can still be read when every reading check passes. |
 | `qualityConfidence`                         | `float`           | Model confidence for the quality classification (`0.0` – `1.0`).                                                                               |
-| `lastDigitColor`                            | `string`          | Detected color of the last digit wheel: `"red"`, `"black"`, or `"unknown"` (when no digits were detected).                                     |
+| `lastDigitColor`                            | `string`          | Detected color of the last digit wheel: `"red"` (a decimal wheel), `"black"`, or `"unknown"` (no digits read, or the colour was too unsure, which refuses the reading). |
 | `colorConfidence`                           | `float`           | Model confidence for the color classification (`0.0` – `1.0`).                                                                                 |
+| `operatorMessage` | `string` | Only when `status` is not `SUCCESS`: what the operator should do, e.g. take another photo avoiding glare. Left out with a reading. |
 
 > `data` is always present in the response regardless of `status`. `meterReading` only holds a real reading when `status` is `SUCCESS`; otherwise it carries a fixed placeholder string, never a number:
 >
@@ -105,28 +108,53 @@ Extracts a meter reading from an image hosted at a given URL.
 > | --------- | ------------------------------------------- |
 > | `SUCCESS` | the extracted digit string, e.g. `"96733"`  |
 > | `NOMETER` | `"No digits detected in the image"`          |
+> | `NOMETER` | `"Photo of a screen or paper, not the meter"` |
 > | `UNCLEAR` | `"Image quality too poor for recognition"`  |
 >
 > Clients must branch on `status` and must not attempt to parse `meterReading` unless `status` is `SUCCESS`.
 
-**Example — successful reading with rollover**
+**Example — successful reading** (red last wheel: the service writes the point, the reading is 24506.9)
 ```json
 {
   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "ts": "2026-06-25T10:30:01Z",
+  "ts": "2026-06-25T10:30:01.123456",
   "responseCode": "OK",
   "statusCode": 200,
   "result": {
     "status": "SUCCESS",
     "correlationId": "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
     "data": {
-      "meterReading": "96733",
+      "meterReading": "024506.9",
+      "hasRollover": false,
+      "processingTime": 1.23,
+      "qualityStatus": "good",
+      "qualityConfidence": 0.95,
+      "lastDigitColor": "red",
+      "colorConfidence": 0.98
+    }
+  }
+}
+```
+
+**Example — reading with a turning wheel** (rare: the current digit model reads one digit per wheel). The last wheel
+shows 9 coming in and 8 going out; 9 shows more, so the reading uses 9.
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "ts": "2026-06-25T10:30:01.123456",
+  "responseCode": "OK",
+  "statusCode": 200,
+  "result": {
+    "status": "SUCCESS",
+    "correlationId": "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
+    "data": {
+      "meterReading": "024506.9",
       "hasRollover": true,
       "rolloverPositions": [
         {
-          "position": 3,
-          "selectedDigit": { "value": 7, "confidence": 0.94 },
-          "alternateDigit": { "value": 6, "confidence": 0.91 }
+          "position": 7,
+          "selectedDigit": { "value": 9, "confidence": 0.92 },
+          "alternateDigit": { "value": 8, "confidence": 0.81 }
         }
       ],
       "processingTime": 1.23,
@@ -134,6 +162,30 @@ Extracts a meter reading from an image hosted at a given URL.
       "qualityConfidence": 0.95,
       "lastDigitColor": "red",
       "colorConfidence": 0.98
+    }
+  }
+}
+```
+
+**Example — reading refused** (the operator is asked for a new photo)
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "ts": "2026-06-25T10:30:01.123456",
+  "responseCode": "OK",
+  "statusCode": 200,
+  "result": {
+    "status": "UNCLEAR",
+    "correlationId": "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
+    "data": {
+      "meterReading": "Image quality too poor for recognition",
+      "hasRollover": false,
+      "processingTime": 1.05,
+      "qualityStatus": "bad",
+      "qualityConfidence": 0.88,
+      "lastDigitColor": "unknown",
+      "colorConfidence": 0.0,
+      "operatorMessage": "..."
     }
   }
 }
@@ -156,13 +208,15 @@ Extracts a meter reading from an image hosted at a given URL.
       "qualityStatus": "good",
       "qualityConfidence": 0.91,
       "lastDigitColor": "unknown",
-      "colorConfidence": 0.0
+      "colorConfidence": 0.0,
+      "operatorMessage": "No meter counter was found. Please take a close photo of the meter's number window, straight on."
     }
   }
 }
 ```
 
-**Error — HTTP 500**
+**Error** (still HTTP 200; `statusCode` in the body is `500`). For example the photo address gives 404, the
+download takes longer than 30 s, or the photo is over 10 MB / 60 megapixels or is not an image.
 
 | Field          | Type      | Description       |
 | -------------- | --------- | ----------------- |
@@ -177,7 +231,7 @@ Extracts a meter reading from an image hosted at a given URL.
 | Field       | Type      | Description                                        |
 | ----------- | --------- | -------------------------------------------------- |
 | `errorCode` | `integer` | `500` — the only value produced by current routes  |
-| `errorMsg`  | `string`  | Exception message from the server                  |
+| `errorMsg`  | `string`  | What went wrong, e.g. `"Photo is larger than 10 MB"` |
 
 ```json
 {
@@ -251,7 +305,7 @@ Submits human accuracy feedback for a previously extracted reading, linked via `
 
 | Field    | Type            | Description                                                          |
 | -------- | --------------- | -------------------------------------------------------------------- |
-| `status` | `string (enum)` | `"SUBMITTED"` if feedback was stored; `"FAILED"` if it could not be |
+| `status` | `string (enum)` | `"SUBMITTED"` when the feedback was accepted (it is stored in the background afterwards, so a database problem is only logged); `"FAILED"` if it could not be accepted |
 
 ```json
 {
@@ -265,9 +319,9 @@ Submits human accuracy feedback for a previously extracted reading, linked via `
 }
 ```
 
-**Error — HTTP 500**
+**Error**
 
-Same envelope as the extract-reading error response above.
+Same envelope as the extract-reading error response above (still HTTP 200).
 
 ---
 
@@ -278,14 +332,14 @@ Same envelope as the extract-reading error response above.
 | Value     | Description                                         |
 | --------- | --------------------------------------------------- |
 | `SUCCESS` | Meter reading extracted successfully                |
-| `NOMETER` | Image passed the quality check but no digits were detected in it — e.g. the photo is not of a meter |
-| `UNCLEAR` | Image quality too poor to extract a reading         |
+| `NOMETER` | No meter counter was found in the photo, or the photo is of a phone/computer screen or of paper |
+| `UNCLEAR` | The counter could not be read safely: no counter row, a digit missing from the row, too few digits, a digit too uncertain, the counter reading differently on its versions, or the last wheel's colour too unsure. The service refuses rather than guesses. |
 
 ### Feedback Status (`result.status` in feedback)
 
 | Value       | Description                  |
 | ----------- | ---------------------------- |
-| `SUBMITTED` | Feedback accepted and stored |
+| `SUBMITTED` | Feedback accepted; it is stored in the background afterwards |
 | `FAILED`    | Feedback could not be stored |
 
 ### Response Code (`responseCode`)
@@ -301,7 +355,7 @@ Same envelope as the extract-reading error response above.
 
 The API uses FastAPI's `BackgroundTasks` for asynchronous operations:
 
-* **Request Logging:** All extraction requests are logged to PostgreSQL via `MetadataStore`
+* **Request Logging:** All extraction requests are logged to PostgreSQL via `MetadataStore` (when `FLOWVISION_DB_*` is set; table from `services/bfm-ocr/flowvision_db_ddl.sql`)
 * **Response Logging:** Extraction results and processing metadata are persisted
 * **Feedback Storage:** User feedback is stored with correlation to original requests
 

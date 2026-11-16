@@ -4,12 +4,12 @@ Fine-tune Color Classification Model
 Fine-tunes the active color_classification_fastai_v2 model on newly annotated
 last-digit color crops to improve red/black classification.
 
-Data layout expected under src/data/:
-  src/data/training/color/
+Data layout expected under training/data/:
+  training/data/train/color/
     red/    ← red digit crop images
     black/  ← black digit crop images
 
-  src/data/test/color/
+  training/data/test/color/
     red/    ← held-out red crops (from annotate_1076)
     black/  ← held-out black crops (from annotate_1076)
     annotations.csv  ← must contain 'source_stem', 'label', and optionally
@@ -64,9 +64,9 @@ RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
-TRAIN_CROPS_DIR = Path("src/data/training/color")
-TEST_CROPS_DIR  = Path("src/data/test/color")
-TEST_ANN_CSV    = Path("src/data/test/color/annotations.csv")
+TRAIN_CROPS_DIR = Path("training/data/train/color")
+TEST_CROPS_DIR  = Path("training/data/test/color")
+TEST_ANN_CSV    = Path("training/data/test/color/annotations.csv")
 ORIG_MODEL      = Path("src/models/color_classification_fastai_v2")
 CKPT_DIR        = Path("training/color/models")
 EXPORT_DIR      = Path("src/models")
@@ -131,7 +131,7 @@ print(f"  training/color/black: {black_n}")
 print(f"  Total:                {total_n}")
 
 if total_n == 0:
-    print("\nERROR: No training crops found in src/data/training/color/")
+    print("\nERROR: No training crops found in training/data/train/color/")
     sys.exit(1)
 
 new_classes = sorted([d.name for d in TRAIN_CROPS_DIR.iterdir()
@@ -270,7 +270,7 @@ interp.print_classification_report()
 
 # ── Step 11: Evaluate on held-out test crops ──────────────────────────────────
 
-print_section("Step 11 — Final test evaluation on src/data/test/color/")
+print_section("Step 11 — Final test evaluation on training/data/test/color/")
 
 if TEST_ANN_CSV.exists():
     gt_df = pd.read_csv(TEST_ANN_CSV)
@@ -318,9 +318,9 @@ if TEST_ANN_CSV.exists():
                 print(f"\n  Pipeline baseline: {baseline*100:.1f}%  "
                       f"vs fine-tuned: {accuracy*100:.1f}%")
     else:
-        print("  No crop files found on disk — populate src/data/test/color/ first.")
+        print("  No crop files found on disk — populate training/data/test/color/ first.")
 else:
-    print(f"  {TEST_ANN_CSV} not found — add annotations.csv to src/data/test/color/")
+    print(f"  {TEST_ANN_CSV} not found — add annotations.csv to training/data/test/color/")
 
 
 # ── Step 12: Export model ──────────────────────────────────────────────────────

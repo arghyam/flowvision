@@ -15,17 +15,21 @@ ANGLES = {"r000": 0, "r090": 90, "r180": 180, "r270": 270}
 
 # The training copies were squashed to this square before the classifier's own resize (imgsz 224).
 INPUT_SIZE = 320
+# The classifier's own input size (trained at imgsz 224; the ONNX export has this fixed size and must be told it).
+MODEL_SIZE = 224
 
 
 class OrientationModel:
     """predict(bgr) -> (angle to undo, confidence). Below min_confidence the photo is read as taken: (0, conf).
 
-    min_confidence 0.9 is what the 169-photo measurement used (config orientation.min_confidence).
+    min_confidence 0.9 is what the 169-photo measurement used (config orientation_min_confidence).
     """
 
     def __init__(self, path, min_confidence: float = 0.9):
         from ultralytics import YOLO
-        self.model = YOLO(path)
+        # The model is an ONNX export of the trained .pt (16 Nov 2026: same turn on 400 of 400 test photos, no confidence
+        # difference). An ONNX file does not say it is a classifier, so the task is given here.
+        self.model = YOLO(path, task="classify")
         names = {int(k): str(v) for k, v in dict(self.model.names).items()}
         unknown = sorted(set(names.values()) - set(ANGLES))
         if unknown or len(names) != len(ANGLES):
@@ -38,7 +42,7 @@ class OrientationModel:
         # Same resize as the measured run (scratch run_orient_fix.py, cv2 default interpolation).
         small = cv2.resize(bgr, (INPUT_SIZE, INPUT_SIZE))
         with self._lock:
-            result = self.model.predict(small, verbose=False)[0]
+            result = self.model.predict(small, verbose=False, imgsz=MODEL_SIZE)[0]
         angle = self.angles[int(result.probs.top1)]
         conf = float(result.probs.top1conf)
         if conf < self.min_confidence:

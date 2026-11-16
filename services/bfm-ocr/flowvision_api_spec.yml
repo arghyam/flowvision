@@ -1,12 +1,24 @@
 openapi: 3.1.0
 info:
-  title: JJM Meter Reading Extraction API(s)
-  description: >-
-    Set of API specifications for extracting meter reading from an image.
-    Every endpoint is served under both base paths listed in `servers`.
+  title: JJM Meter Reading Extraction API (BFM)
   version: v1
-  x-logo:
-    url: https://fastapi.tiangolo.com/img/logo-margin/logo-teal.png
+  description: |-
+    Reads the counter of a bulk flow meter (BFM) from a photo.
+
+    How to use the answer:
+    - The HTTP status is 200 for every answer, errors included. Check `responseCode` (`OK` / `ERROR`)
+      and then `result.status`.
+    - Only `result.status = SUCCESS` carries a reading. With `UNCLEAR` or `NOMETER`, `meterReading`
+      holds a short explanation (text, not a number) and `operatorMessage` tells the operator what to do.
+    - `meterReading` is the reading as a string, leading zeros kept. **When the last wheel is red, the
+      service writes the decimal point itself** (`"024506.9"` = 24506.9); when it is black, the reading is
+      digits only (`"0268045"`). Use the value as returned: do not divide by 10 or place a point.
+    - The service refuses rather than guesses: an unclear counter, a digit it is not sure of, or an
+      unsure last-wheel colour gives `UNCLEAR`, never a reading.
+    - A wheel caught between two digits (rollover) gives the digit that shows more: the next digit once
+      half of it shows, otherwise the current one (9 to 0 the same way, with the carry).
+
+    Every endpoint is served under both base paths listed in `servers`.
 servers:
   - url: /flowvision/v1/bfm
     description: Per-meter base path. Use this for new clients.
@@ -18,423 +30,503 @@ paths:
       tags:
         - image-handlers
       summary: Extract Reading
-      description: Extract meter reading from an image.
-      operationId: extract_reading_flowvision_v1_extract_reading_post
+      description: Read the meter counter in the photo at `imageURL`.
+      operationId: extract_reading
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ExtractReadingRequest'
+              $ref: '#/components/schemas/ReadingExtractionRequest'
             examples:
-              image-handlers:
-                summary: Extract reading example
+              request:
+                summary: Extract reading
                 value:
                   id: 2800d121-02b4-471d-bc33-be3a56f8db2a
-                  ts: 1729600269
-                  imageURL: https://test-bucket.s3.amazonaws.com/path/to/your/object.jpg
-        required: true
+                  ts: '2026-11-14T10:00:00Z'
+                  imageURL: https://example-bucket.s3.amazonaws.com/path/to/photo.jpg
+                  metadata: {}
       responses:
         '200':
-          description: Successful reading extraction
+          description: |-
+            Every answer, errors included, comes with HTTP 200. See `responseCode` and `result.status`.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ExtractReadingResponse'
-              example:
-                id: 2800d121-02b4-471d-bc33-be3a56f8db2a
-                ts: 1729600269
-                responseCode: OK
-                statusCode: 200
-                result:
-                  status: SUCCESS
-                  correlationId: cfde9907-55be-4820-b575-f28a476e2104
-                  data:
-                    meterReading: 24506.9
-                    meterBrand: Belanto
+                $ref: '#/components/schemas/ReadingExtractionResponse'
+              examples:
+                success_red_last_wheel:
+                  summary: Reading, last wheel red (decimal) -> 24506.9
+                  value:
+                    id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                    ts: '2026-11-14T10:00:01.054575'
+                    responseCode: OK
+                    statusCode: 200
+                    result:
+                      status: SUCCESS
+                      correlationId: 3979708a-5d03-4b05-9846-c6155560133f
+                      data:
+                        meterReading: '024506.9'
+                        hasRollover: false
+                        processingTime: 0.57
+                        qualityStatus: good
+                        qualityConfidence: 0.992
+                        lastDigitColor: red
+                        colorConfidence: 0.993
+                success_black_last_wheel:
+                  summary: Reading, last wheel black -> 9964
+                  value:
+                    id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                    ts: '2026-11-14T10:00:01.054575'
+                    responseCode: OK
+                    statusCode: 200
+                    result:
+                      status: SUCCESS
+                      correlationId: 5d8d2dfc-6ea2-4f1f-a59a-08412345afff
+                      data:
+                        meterReading: '009964'
+                        hasRollover: false
+                        processingTime: 0.97
+                        qualityStatus: good
+                        qualityConfidence: 0.999
+                        lastDigitColor: black
+                        colorConfidence: 0.937
+                unclear:
+                  summary: Refused, the counter could not be read with certainty
+                  value:
+                    id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                    ts: '2026-11-14T10:00:01.054575'
+                    responseCode: OK
+                    statusCode: 200
+                    result:
+                      status: UNCLEAR
+                      correlationId: 227e1497-cc52-4b04-ade4-c99cc749fa93
+                      data:
+                        meterReading: Image quality too poor for recognition
+                        hasRollover: false
+                        processingTime: 0.52
+                        qualityStatus: good
+                        qualityConfidence: 0.999
+                        lastDigitColor: unknown
+                        colorConfidence: 0.0
+                        operatorMessage: >-
+                          The numbers could not be read clearly. Please take another photo: hold the phone
+                          straight over the number window, close enough to fill most of the photo, keep it
+                          still, and avoid glare by tilting the phone a little or shading the meter with
+                          your hand.
+                unclear_colour:
+                  summary: Refused, the last wheel's colour (decimal or not) is unsure
+                  value:
+                    id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                    ts: '2026-11-14T10:00:01.054575'
+                    responseCode: OK
+                    statusCode: 200
+                    result:
+                      status: UNCLEAR
+                      correlationId: 6a1f3c2e-0b7d-4e1a-9c55-2f0e8d4b7a10
+                      data:
+                        meterReading: Image quality too poor for recognition
+                        hasRollover: false
+                        processingTime: 0.61
+                        qualityStatus: good
+                        qualityConfidence: 0.98
+                        lastDigitColor: unknown
+                        colorConfidence: 0.0
+                        operatorMessage: >-
+                          The last wheel could not be read: it may be hidden by glare. Please take another
+                          photo, tilting the phone a little or shading the meter with your hand.
+                no_meter:
+                  summary: No meter counter in the photo
+                  value:
+                    id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                    ts: '2026-11-14T10:00:01.054575'
+                    responseCode: OK
+                    statusCode: 200
+                    result:
+                      status: NOMETER
+                      correlationId: a23855b8-e08b-4612-9109-b54ae129ef4d
+                      data:
+                        meterReading: No digits detected in the image
+                        hasRollover: false
+                        processingTime: 0.31
+                        qualityStatus: bad
+                        qualityConfidence: 0.999
+                        lastDigitColor: unknown
+                        colorConfidence: 0.0
+                        operatorMessage: >-
+                          No meter counter was found. Please take a close photo of the meter's number
+                          window, straight on.
+                screen_or_paper:
+                  summary: Photo of a phone screen or of paper, refused before any digit is read
+                  value:
+                    id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                    ts: '2026-11-14T10:00:01.054575'
+                    responseCode: OK
+                    statusCode: 200
+                    result:
+                      status: NOMETER
+                      correlationId: 0c9e2b6d-3f4a-4d8e-8b21-7e5a9c1d2f30
+                      data:
+                        meterReading: Photo of a screen or paper, not the meter
+                        hasRollover: false
+                        processingTime: 0.2
+                        qualityStatus: not checked
+                        qualityConfidence: 0.0
+                        lastDigitColor: unknown
+                        colorConfidence: 0.0
+                        operatorMessage: >-
+                          This looks like a photo of a phone or computer screen, or of a paper. Please take
+                          the photo of the meter itself, at the meter.
+                error:
+                  summary: Error, e.g. the photo address gives 404 (still HTTP 200)
+                  value:
+                    id: 2800d121-02b4-471d-bc33-be3a56f8db2a
+                    ts: '2026-11-14T10:00:01.054575'
+                    responseCode: ERROR
+                    statusCode: 500
+                    error:
+                      errorCode: 500
+                      errorMsg: >-
+                        404 Client Error: Not Found for url:
+                        https://example-bucket.s3.amazonaws.com/path/to/photo.jpg
         '422':
-          description: Validation Error
+          description: The request body is not valid (for example `imageURL` missing).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-        '500':
-          description: Error in reading extraction
-          content:
-            application/json:
-              example:
-                id: 2800d121-02b4-471d-bc33-be3a56f8db2a
-                ts: 1729600269
-                responseCode: ERROR
-                statusCode: 500
-                error:
-                  errorCode: ERR_READING_EXTRACTION_FAILED
-                  errorMsg: Failed to extract meter reading
   /feedback:
     post:
       tags:
         - feedback
       summary: Provide Feedback
-      description: Provide feedback for an extracted reading from the image.
-      operationId: provide_feedback_flowvision_v1_feedback_post
+      description: |-
+        Tell the service whether a reading was right, using the `correlationId` of that answer.
+        `extracted` and `actual` are the readings as numbers, decimal included (24506.9).
+      operationId: provide_feedback
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/FeedbackRequest'
             examples:
               feedback:
-                summary: Provide feedback for an extracted reading from the image
+                summary: The reading was wrong
                 value:
                   id: 2800d121-02b4-471d-bc33-be3a56f8db2a
-                  ts: 1729600269
-                  correlationId: cfde9907-55be-4820-b575-f28a476e2104
+                  ts: '2026-11-14T10:05:00Z'
+                  correlationId: 3979708a-5d03-4b05-9846-c6155560133f
                   data:
                     accurate: false
-                    extracted: 24509.6
-                    actual: 24406.9
-        required: true
+                    extracted: 24506.9
+                    actual: 24507.0
       responses:
         '200':
-          description: Feedback submitted successfully
+          description: Every answer, errors included, comes with HTTP 200. See `responseCode`.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/FeedbackResponse'
               example:
                 id: 2800d121-02b4-471d-bc33-be3a56f8db2a
-                ts: 1729600269
+                ts: '2026-11-14T10:05:00.915169'
                 responseCode: OK
                 statusCode: 200
                 result:
                   status: SUBMITTED
         '422':
-          description: Validation Error
+          description: The request body is not valid.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-        '500':
-          description: Error submitting feedback
-          content:
-            application/json:
-              example:
-                id: 2800d121-02b4-471d-bc33-be3a56f8db2a
-                ts: 1729600269
-                responseCode: ERROR
-                statusCode: 500
-                error:
-                  errorCode: ERR_FEEDBACK_SUBMISSION_FAILED
-                  errorMsg: Failed to submit feedback
 components:
   schemas:
-    ExtractReadingRequest:
+    ReadingExtractionRequest:
+      type: object
+      title: ReadingExtractionRequest
+      required:
+        - imageURL
       properties:
         id:
-          type: string
-          title: Id
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+          description: Request id. Sent back in the answer; one is made up when it is missing.
         ts:
-          type: string
-          format: date-time
-          title: Ts
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+          description: When the request was made.
         imageURL:
           type: string
-          title: Imageurl
+          description: Address of the photo. The service downloads it and keeps no copy of the photo. The download must finish within 30 seconds, and photos over 10 MB or 60 megapixels are refused with an error.
         metadata:
           anyOf:
             - type: object
+              additionalProperties: true
             - type: 'null'
-          title: Metadata
+          description: Optional extra information; stored with the request.
+    ReadingExtractionResponse:
       type: object
-      required:
-        - id
-        - ts
-        - imageURL
-        - metadata
-      title: ExtractReadingRequest
-    ExtractReadingResponse:
-      properties:
-        id:
-          type: string
-          title: Id
-        ts:
-          type: string
-          format: date-time
-          title: Ts
-        responseCode:
-          $ref: '#/components/schemas/ResponseCode'
-        statusCode:
-          $ref: '#/components/schemas/HTTPStatus'
-        errorCode:
-          anyOf:
-            - $ref: '#/components/schemas/ResponseError'
-            - type: 'null'
-        result:
-          anyOf:
-            - $ref: '#/components/schemas/ExtractReadingResultWrapper'
-            - type: 'null'
-      type: object
+      title: ReadingExtractionResponse
       required:
         - id
         - ts
         - responseCode
         - statusCode
-        - errorCode
-        - result
-      title: ExtractReadingResponse
-    ExtractReadingResultWrapper:
       properties:
-        status:
-          $ref: '#/components/schemas/ExtractReadingStatus'
-        correlationId:
-          anyOf:
-            - type: string
-            - type: 'null'
-          title: Correlationid
-        data:
-          $ref: '#/components/schemas/GetUploadUrlResultData'
+        id:
+          type: string
+          format: uuid
+        ts:
+          type: string
+          format: date-time
+          description: When the answer was made (server time).
+        responseCode:
+          $ref: '#/components/schemas/ResponseCode'
+        statusCode:
+          type: integer
+          description: 200 for an answer, 500 for an error. The HTTP status itself is always 200.
+        error:
+          $ref: '#/components/schemas/Error'
+        result:
+          $ref: '#/components/schemas/ReadingExtractionResult'
+    ReadingExtractionResult:
       type: object
+      title: ReadingExtractionResult
       required:
         - status
         - correlationId
-        - data
-      title: ExtractReadingResultWrapper
-    ExtractReadingStatus:
-      type: string
-      enum:
-        - NOMETER
-        - UNCLEAR
-        - INVALID
-        - SUCCESS
-      title: ExtractReadingStatus
-    FeddbackResultWrapper:
       properties:
         status:
-          $ref: '#/components/schemas/FeedbackStatus'
+          $ref: '#/components/schemas/Status'
+        correlationId:
+          type: string
+          format: uuid
+          description: Id of this reading; send it with any feedback.
+        data:
+          $ref: '#/components/schemas/ReadingExtractionResultData'
+    ReadingExtractionResultData:
       type: object
+      title: ReadingExtractionResultData
       required:
-        - status
-      title: FeddbackResultWrapper
-    FeedbackData:
+        - processingTime
+        - qualityStatus
+        - qualityConfidence
+        - lastDigitColor
+        - colorConfidence
+      properties:
+        meterReading:
+          anyOf:
+            - type: string
+            - type: number
+            - type: 'null'
+          description: |-
+            SUCCESS: the reading as a string, leading zeros kept; when the last wheel is red the service writes
+            the decimal point before it (`"024506.9"`), so use it as returned. UNCLEAR / NOMETER: a short
+            explanation, not a number.
+        lastDigitColor:
+          type: string
+          enum:
+            - red
+            - black
+            - unknown
+          description: |-
+            Colour of the last wheel; use it only with SUCCESS. `red`: it is a decimal wheel, and
+            `meterReading` already carries the decimal point. `black`: a whole-number reading. `unknown`: not judged. With UNCLEAR
+            it can still show `black` (a black call the service did not trust: the wheel looked red).
+        colorConfidence:
+          type: number
+          description: How sure the colour check is (0 to 1). 0 when the colour was not judged.
+        qualityStatus:
+          type: string
+          description: Photo quality, `good` or `bad` (`not checked` for a screen / paper photo, refused before this check). A bad photo can still be read when every check passes.
+        qualityConfidence:
+          type: number
+          description: How sure the quality check is (0 to 1).
+        hasRollover:
+          type: boolean
+          default: false
+          description: True when the service found two digits on one wheel (turning) and chose one; see `rolloverPositions`. The current digit model reads one digit per wheel, so this is normally false.
+        rolloverPositions:
+          anyOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/RolloverPosition'
+            - type: 'null'
+          description: For each turning wheel, the digit used in `meterReading` (`selectedDigit`) and the other one (`alternateDigit`). Left out when there is none.
+        operatorMessage:
+          anyOf:
+            - type: string
+            - type: 'null'
+          description: When there is no reading, what the operator should do (e.g. retake the photo). Left out for a reading.
+        processingTime:
+          type: number
+          description: Seconds taken.
+        meterBrand:
+          anyOf:
+            - type: string
+            - type: 'null'
+          description: Not filled at present; left out of the answer.
+    RolloverPosition:
+      type: object
+      title: RolloverPosition
+      required:
+        - position
+        - selectedDigit
+        - alternateDigit
+      properties:
+        position:
+          type: integer
+          description: Wheel position in the reading, counted from 1 on the left.
+        selectedDigit:
+          $ref: '#/components/schemas/RolloverDigit'
+        alternateDigit:
+          $ref: '#/components/schemas/RolloverDigit'
+    RolloverDigit:
+      type: object
+      title: RolloverDigit
+      required:
+        - value
+        - confidence
+      properties:
+        value:
+          type: integer
+        confidence:
+          type: number
+    Status:
+      type: string
+      title: Status
+      enum:
+        - SUCCESS
+        - UNCLEAR
+        - NOMETER
+      description: |-
+        SUCCESS: a reading. UNCLEAR: a meter, but it could not be read with certainty (retake).
+        NOMETER: no meter counter in the photo, or a photo of a screen or paper.
+    ResponseCode:
+      type: string
+      title: ResponseCode
+      enum:
+        - OK
+        - ERROR
+    Error:
+      type: object
+      title: Error
+      required:
+        - errorCode
+        - errorMsg
+      properties:
+        errorCode:
+          anyOf:
+            - type: string
+            - type: integer
+        errorMsg:
+          type: string
+          description: The error as raised (for example the download error, or "Photo is larger than 10 MB").
+    FeedbackRequest:
+      type: object
+      title: FeedbackRequest
+      required:
+        - correlationId
+        - data
+      properties:
+        id:
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        ts:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        correlationId:
+          type: string
+          format: uuid
+          description: The `correlationId` of the reading this feedback is about.
+        data:
+          $ref: '#/components/schemas/FeedbackRequestData'
+    FeedbackRequestData:
+      type: object
+      title: FeedbackRequestData
+      required:
+        - accurate
       properties:
         accurate:
           type: boolean
-          title: Accurate
+          description: Whether the reading was right.
         extracted:
           anyOf:
             - type: number
             - type: 'null'
-          title: Extracted
+          description: The reading the service gave, as a number (decimal included).
         actual:
           anyOf:
             - type: number
             - type: 'null'
-          title: Actual
-      type: object
-      required:
-        - accurate
-        - extracted
-        - actual
-      title: FeedbackData
-    FeedbackRequest:
-      properties:
-        id:
-          type: string
-          title: Id
-        ts:
-          type: string
-          format: date-time
-          title: Ts
-        correlationId:
-          type: string
-          title: Correlationid
-        data:
-          $ref: '#/components/schemas/FeedbackData'
-      type: object
-      required:
-        - id
-        - ts
-        - correlationId
-        - data
-      title: FeedbackRequest
+          description: The right reading, as a number (decimal included).
     FeedbackResponse:
-      properties:
-        id:
-          type: string
-          title: Id
-        ts:
-          type: string
-          format: date-time
-          title: Ts
-        responseCode:
-          $ref: '#/components/schemas/ResponseCode'
-        statusCode:
-          $ref: '#/components/schemas/HTTPStatus'
-        errorCode:
-          anyOf:
-            - $ref: '#/components/schemas/ResponseError'
-            - type: 'null'
-        result:
-          anyOf:
-            - $ref: '#/components/schemas/FeddbackResultWrapper'
-            - type: 'null'
       type: object
+      title: FeedbackResponse
       required:
         - id
         - ts
         - responseCode
         - statusCode
-        - errorCode
-        - result
-      title: FeedbackResponse
-    FeedbackStatus:
-      type: string
-      enum:
-        - SUBMITTED
-        - FAILED
-      title: FeedbackStatus
-    GetUploadUrlResultData:
       properties:
-        imageURL:
+        id:
           type: string
-          title: Imageurl
-        expiry:
+          format: uuid
+        ts:
+          type: string
+          format: date-time
+        responseCode:
+          $ref: '#/components/schemas/ResponseCode'
+        statusCode:
           type: integer
-          title: Expiry
+        error:
+          $ref: '#/components/schemas/Error'
+        result:
+          $ref: '#/components/schemas/FeedbackStatus'
+    FeedbackStatus:
       type: object
+      title: FeedbackStatus
       required:
-        - imageURL
-        - expiry
-      title: GetUploadUrlResultData
-    HTTPStatus:
-      type: integer
-      enum:
-        - 100
-        - 101
-        - 102
-        - 103
-        - 200
-        - 201
-        - 202
-        - 203
-        - 204
-        - 205
-        - 206
-        - 207
-        - 208
-        - 226
-        - 300
-        - 301
-        - 302
-        - 303
-        - 304
-        - 305
-        - 307
-        - 308
-        - 400
-        - 401
-        - 402
-        - 403
-        - 404
-        - 405
-        - 406
-        - 407
-        - 408
-        - 409
-        - 410
-        - 411
-        - 412
-        - 413
-        - 414
-        - 415
-        - 416
-        - 417
-        - 418
-        - 421
-        - 422
-        - 423
-        - 424
-        - 425
-        - 426
-        - 428
-        - 429
-        - 431
-        - 451
-        - 500
-        - 501
-        - 502
-        - 503
-        - 504
-        - 505
-        - 506
-        - 507
-        - 508
-        - 510
-        - 511
-      title: HTTPStatus
-      description: |-
-        HTTP status codes and reason phrases
-
-        Status codes from the following RFCs are all observed:
-
-            * RFC 7231: Hypertext Transfer Protocol (HTTP/1.1), obsoletes 2616
-            * RFC 6585: Additional HTTP Status Codes
-            * RFC 3229: Delta encoding in HTTP
-            * RFC 4918: HTTP Extensions for WebDAV, obsoletes 2518
-            * RFC 5842: Binding Extensions to WebDAV
-            * RFC 7238: Permanent Redirect
-            * RFC 2295: Transparent Content Negotiation in HTTP
-            * RFC 2774: An HTTP Extension Framework
-            * RFC 7725: An HTTP Status Code to Report Legal Obstacles
-            * RFC 7540: Hypertext Transfer Protocol Version 2 (HTTP/2)
-            * RFC 2324: Hyper Text Coffee Pot Control Protocol (HTCPCP/1.0)
-            * RFC 8297: An HTTP Status Code for Indicating Hints
-            * RFC 8470: Using Early Data in HTTP
-    HTTPValidationError:
+        - status
       properties:
-        detail:
-          items:
-            $ref: '#/components/schemas/ValidationError'
-          type: array
-          title: Detail
+        status:
+          type: string
+          enum:
+            - SUBMITTED
+            - FAILED
+    HTTPValidationError:
       type: object
       title: HTTPValidationError
-    ResponseCode:
-      type: string
-      enum:
-        - OK
-        - ERROR
-      title: ResponseCode
-    ResponseError:
       properties:
-        errorCode:
-          type: string
-          title: Errorcode
-        errorMsg:
-          type: string
-          title: Errormsg
-      type: object
-      required:
-        - errorCode
-        - errorMsg
-      title: ResponseError
-    ValidationError:
-      properties:
-        loc:
-          items:
-            anyOf:
-              - type: string
-              - type: integer
+        detail:
           type: array
-          title: Location
-        msg:
-          type: string
-          title: Message
-        type:
-          type: string
-          title: Error Type
+          items:
+            $ref: '#/components/schemas/ValidationError'
+    ValidationError:
       type: object
+      title: ValidationError
       required:
         - loc
         - msg
         - type
-      title: ValidationError
+      properties:
+        loc:
+          type: array
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+        msg:
+          type: string
+        type:
+          type: string

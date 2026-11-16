@@ -21,7 +21,7 @@ os.chdir(SERVICE)
 sys.path.insert(0, os.path.join(SERVICE, "src"))
 
 from fastapi import BackgroundTasks  # noqa: E402
-from PIL import Image  # noqa: E402
+from PIL import Image, ImageOps  # noqa: E402
 
 from conf.config import Config  # noqa: E402
 from models.models import ReadingExtractionRequest  # noqa: E402
@@ -31,9 +31,9 @@ MODES = {"before": ("false", "off"), "after": ("true", "on")}
 
 
 def local_photo(path):
-    """download_image, from a local file (the same PNG re-encode)."""
+    """download_image, from a local file (the same rotation flag and PNG re-encode)."""
     buf = BytesIO()
-    Image.open(path).save(buf, format="PNG")
+    ImageOps.exif_transpose(Image.open(path)).save(buf, format="PNG")
     return buf.getvalue()
 
 

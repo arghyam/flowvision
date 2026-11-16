@@ -1,6 +1,5 @@
 from pydantic import BaseModel
 from datetime import datetime
-from fastapi import UploadFile
 from enum import StrEnum
 from uuid import UUID
 from typing import Optional, Dict, Any, List
@@ -45,15 +44,6 @@ class ReadingExtractionRequest(BaseRequest):
   metadata: Optional[Dict[str, Any]] = None
 
 
-class ImageUploadRequest(BaseRequest):
-  image: UploadFile
-  metadata: dict | None = None
-
-
-class ImageUploadResult(BaseModel):
-  imageURL: str
-
-
 class RolloverDigit(BaseModel):
   value: int
   confidence: float
@@ -75,6 +65,7 @@ class ReadingExtractionResultData(BaseModel):
   qualityConfidence: float
   lastDigitColor: str
   colorConfidence: float
+  operatorMessage: Optional[str] = None
 
 
 
@@ -82,10 +73,6 @@ class ReadingExtractionResult(BaseModel):
   status: Status
   correlationId: UUID
   data: Optional[ReadingExtractionResultData] = None
-
-
-class ImageUploadResponse(BaseResponse):
-  result: ImageUploadResult | None = None
 
 
 class ReadingExtractionResponse(BaseResponse):

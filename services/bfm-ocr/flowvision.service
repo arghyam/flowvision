@@ -2,9 +2,16 @@
 Description=Flowvision APIs
 After=network.target
 
+# For running without Docker. Assumes the repository is cloned at /home/ubuntu/code/arghyam/flowvision and the
+# Python packages (requirements.lock) are installed in /home/ubuntu/code/arghyam/flowvision_venv; change both if not.
+# The service must start in services/bfm-ocr: its settings, model and log paths are relative to that folder.
 [Service]
-WorkingDirectory=/home/ubuntu/code/arghyam
-ExecStart=/home/ubuntu/code/arghyam/flowvision_venv/bin/python /home/ubuntu/code/arghyam/flowvision/src/run.py
+WorkingDirectory=/home/ubuntu/code/arghyam/flowvision/services/bfm-ocr
+ExecStart=/home/ubuntu/code/arghyam/flowvision_venv/bin/python src/run.py
+# Database and other settings, one NAME=value per line, kept outside the repository (optional file)
+EnvironmentFile=-/home/ubuntu/code/arghyam/flowvision.env
+# The orientation model's library (ultralytics) otherwise checks the internet at startup and sends usage statistics
+Environment=YOLO_OFFLINE=true
 Restart=on-failure
 StartLimitInterval=60
 RestartSec=120

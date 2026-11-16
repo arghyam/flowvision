@@ -1,7 +1,6 @@
 import os
 import sqlalchemy as db
 from sqlalchemy import text
-from conf.config import Config
 
 class DatabaseService:
     def __init__(self):
@@ -13,7 +12,11 @@ class DatabaseService:
             port=int(os.environ.get("FLOWVISION_DB_PORT", 5432)),
             database=os.environ.get("FLOWVISION_DB_NAME", "flowvision"),
         )
-        self.engine = db.create_engine(url_object)
+        # Without time limits a database that hangs would hold every request's background write (and its thread)
+        # indefinitely: give up connecting after 3 s and on any statement after 10 s; check a pooled connection
+        # is still alive before using it.
+        self.engine = db.create_engine(url_object, pool_pre_ping=True,
+                                       connect_args={"connect_timeout": 3, "options": "-c statement_timeout=10000"})
 
 
     def get_connection(self) -> db.Connection:
@@ -31,6 +34,3 @@ class DatabaseService:
             raise e
         finally:
             self.release_connection(conn=conn)
-
-    def update(self):
-        pass

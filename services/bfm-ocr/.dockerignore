@@ -10,9 +10,18 @@ venv
 **/*.pyc
 logs
 
+# Local settings files: keys must never be baked into the image. On the server, pass settings as environment
+# variables (docker run -e / the task definition). Without the file the service uses src/conf/config.yaml, as before.
+.env
+**/.env
+
 # Working documents (personal data) and tests: not part of the image
 docs
 tests
+local_donot_push_this
 
 # Developer script (scripts/try_photos.py): not part of the service
 scripts
+
+# Training scripts and their image folders: only for retraining models, not part of the service
+training
