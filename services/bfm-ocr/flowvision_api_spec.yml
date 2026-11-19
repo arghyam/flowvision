@@ -189,6 +189,16 @@ paths:
                       errorMsg: >-
                         404 Client Error: Not Found for url:
                         https://example-bucket.s3.amazonaws.com/path/to/photo.jpg
+                not_an_image:
+                  summary: Error, the photo address answers with something that is not an image (still HTTP 200)
+                  value:
+                    id: 5c1f7a52-3d0e-4b6f-9a51-2f0c8e3b7d44
+                    ts: '2026-11-19T10:00:01.054575'
+                    responseCode: ERROR
+                    statusCode: 500
+                    error:
+                      errorCode: 500
+                      errorMsg: The link did not return an image
         '422':
           description: The request body is not valid (for example `imageURL` missing).
           content:

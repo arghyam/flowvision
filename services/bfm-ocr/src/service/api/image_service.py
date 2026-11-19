@@ -10,7 +10,7 @@ from error.error import CustomHTTPException
 from models.models import Error, Status, ReadingExtractionRequest, ReadingExtractionResponse, ReadingExtractionResult, ReadingExtractionResultData, ResponseCode, FeedbackRequest, FeedbackResponseStatus, FeedbackResponse, FeedbackStatus, BaseResponse, RolloverDigit, RolloverPosition
 from conf.config import Config
 from service.api.metadata_service import MetadataStore
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 import time
 import requests
@@ -123,7 +123,11 @@ class ImageService:
                     raise ValueError(f"Photo is larger than {self.max_photo_bytes // 1048576} MB")
                 if time.monotonic() - started > DOWNLOAD_DEADLINE:
                     raise TimeoutError(f"Photo took longer than {DOWNLOAD_DEADLINE} seconds to download")
-        image = Image.open(BytesIO(bytes(content)))
+        try:
+            image = Image.open(BytesIO(bytes(content)))
+        except UnidentifiedImageError:
+            # e.g. an error page or an expired link: say so plainly, not "cannot identify image file <_io.BytesIO ...>"
+            raise ValueError("The link did not return an image") from None
         if image.width * image.height > self.max_photo_pixels:
             raise ValueError(f"Photo is larger than {self.max_photo_pixels // 1000000} megapixels")
         image = ImageOps.exif_transpose(image)

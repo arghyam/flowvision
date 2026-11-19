@@ -26,6 +26,8 @@ class Yolox:
     def __call__(self, img, conf=0.25, nms=0.45, probs=False):
         """YOLOX ValTransform (letterbox, pad 114, BGR, no normalisation) -> boxes in image pixels.
         probs: also return each box's class probabilities (to see a wheel split between two digits)."""
+        if img is None or img.size == 0:
+            return []  # an empty cut-out holds nothing to find (its size would divide by zero below)
         r = min(self.h / img.shape[0], self.w / img.shape[1])
         pad = np.full((self.h, self.w, 3), 114, dtype=np.uint8)
         rs = cv2.resize(img, (int(img.shape[1] * r), int(img.shape[0] * r)), interpolation=cv2.INTER_LINEAR)
@@ -212,6 +214,10 @@ class Reader:
         x0, y0 = int(max(0, x0 - m)), int(max(0, y0 - m))
         x1, y1 = int(min(w, x1 + m)), int(min(h, y1 + m))
         crop = img[y0:y1, x0:x1]
+        if crop.size == 0:
+            # The window box lies outside the photo (it can, in the padding around the scaled photo): no counter here.
+            # Without this the cut-out was empty and reading it raised a server error (Alan's Phase 3 note, 19 Nov 2026).
+            return None
         if ROT[c] is not None:
             crop = cv2.rotate(crop, ROT[c])
         ds = sorted(self.dig(crop, conf=digit_conf), key=lambda t: (t[0][0] + t[0][2]) / 2)
